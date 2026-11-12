@@ -95,6 +95,7 @@ marked *terminal* or *window* works there only.
 | `Home`, `End` | Oldest moment, back to live |
 | `H` | History: 30 s, 1 min, 5 min (a recording: zoom up to all of it) |
 | `R` | Sampling: every 0.5, 1 or 2 s |
+| `Backspace` | Back one step, whatever you did: let go of a frozen moment, zoom out, clear the selection, bring back the graphs from before *Only*, go live, clear the baseline. Pressed again and again it returns to the live picture (*terminal*) |
 
 | Mouse | |
 |---|---|
@@ -112,7 +113,7 @@ marked *terminal* or *window* works there only.
 
 | Selection (*terminal*) | |
 |---|---|
-| `Enter`, `Backspace` | Zoom in on the selection, zoom out again |
+| `Enter` | Zoom in on the selection (`Backspace` zooms out again) |
 | `E` | Save the selection as a recording that `-replay` plays |
 | `Y` | Copy its summary to the clipboard |
 | `B` | Make it the baseline to compare with; `B` without a selection clears it |
@@ -253,7 +254,8 @@ On the side panel a left click opens the same menu, and a row that has one light
 - **A section of the side panel** (its title): move it up or down, or hide it.
 
 **The footer is a row of buttons.** Every hint in it reads as a key and what it does, and a click presses that key:
-`Space pause`, `? help`, `Esc clear` and `E save` while a range is selected, `End live` while you look back. The state
+`Space pause`, `Backspace back`, `? help`, `Esc clear` and `E save` while a range is selected, `End live` while you
+look back. The state
 at the right end works too: click the history (`5 min`) for the next one, `every 1 s` for the next sampling interval.
 The part under the mouse lights up.
 

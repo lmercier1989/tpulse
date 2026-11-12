@@ -1770,8 +1770,8 @@ internal sealed partial class TerminalApp
 			case EnterKey when HasSelection:
 				ZoomToSelection();
 				break;
-			case BackspaceKey when _zooms.Count > 0:
-				ZoomOut();
+			case BackspaceKey:
+				Back();
 				break;
 			case 'E' when HasSelection:
 				ExportSelection();
@@ -1824,6 +1824,49 @@ internal sealed partial class TerminalApp
 		Toast(Messages.Zoomed(length));
 		_panelDirty = true;
 		RedrawWhilePaused();
+	}
+
+	/// <summary>
+	/// Backspace: one step back, whatever the screen shows (see <see cref="GoBack"/>): let go of a frozen moment, zoom out,
+	/// clear the selection, show the graphs from before "Only", go live, clear the baseline. Pressed again and again it
+	/// returns to the live picture.
+	/// </summary>
+	private void Back()
+	{
+		var held = _recording is null ? Scrolled || _paused : _playing;
+		switch (GoBack.Next(!double.IsNaN(_pinTime), _zooms.Count > 0, HasSelection, _soloRestore is not null, held, _baseline is not null))
+		{
+			case BackStep.LetGo:
+				LetGo();
+				Toast(Messages.LetGo);
+				break;
+			case BackStep.ZoomOut:
+				ZoomOut();
+				break;
+			case BackStep.ClearSelection:
+				ClearSelection();
+				Toast(Messages.SelectionCleared);
+				break;
+			case BackStep.ShowGraphs:
+				ShowAllGraphs();
+				Toast(Messages.GraphsBack);
+				break;
+			case BackStep.Live:
+				// Space does this already: back to live from looking back, resumed when paused; a recording stops playing.
+				TogglePause();
+				if (_recording is null)
+				{
+					Toast(Messages.Resumed);
+				}
+
+				break;
+			case BackStep.ClearBaseline:
+				ToggleBaseline();
+				break;
+			default:
+				Toast(Messages.NothingToGoBack);
+				break;
+		}
 	}
 
 	private void ZoomOut()

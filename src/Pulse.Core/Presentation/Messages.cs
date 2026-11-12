@@ -76,4 +76,12 @@ public static class Messages
 
 	/// <summary>"dotnet has ended already".</summary>
 	public static string ProcessGone(string name) => $"{name} has ended already";
+
+	public const string LetGo = "Moment let go";
+
+	public const string SelectionCleared = "Selection cleared";
+
+	public const string GraphsBack = "The graphs from before";
+
+	public const string NothingToGoBack = "Live · nothing to go back from";
 }

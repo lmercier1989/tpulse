@@ -944,7 +944,7 @@ internal sealed partial class TerminalApp
 			case ' ':
 				SetSectionShown(name, !shown);
 				break;
-			case EscapeKey or EnterKey or 'L' or 'Q':
+			case EscapeKey or EnterKey or BackspaceKey or 'L' or 'Q':
 				_help = false;
 				break;
 		}

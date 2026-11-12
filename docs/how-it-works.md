@@ -164,6 +164,10 @@ Which metrics come from where, and what Windows cannot provide, is in [hardware-
   (a mark, a selection) sky blue, what Pulse found orange (a spike) or pink (a leak), an error red; the stacked bands use
   colours no marker uses. A section title is a capitalised noun with its detail as written ("SELECTION 14:32:05 ·
   1 min 5 s"); a list of figures gets a dim row naming its columns.
+* **Backspace goes back** one step from whatever the screen shows, the closest thing first: a frozen moment, a zoom, a
+  selection, one graph alone, a view held back or paused (or a recording that plays), and the baseline last, because it
+  is kept on purpose. On the overview, the layout screen and in a menu it closes them. Live with nothing to undo, it says
+  so.
 * **Clicks off the graphs.** A row of the side panel that stands for something (a process, a port, a repository, an
   event, a disk) and a section title are lit under the mouse, and a left click opens their menu, as the right button
   does. Every hint in the footer reads "Key verb", so the part under the mouse names its key: a click presses it, and

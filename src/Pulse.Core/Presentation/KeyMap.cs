@@ -62,6 +62,7 @@ public static class KeyMap
 				new("Home, End", "Oldest moment, back to live"),
 				new("H", replay ? "Zoom: 30 s up to the whole recording" : "History: 30 s, 1 min, 5 min"),
 				new("R", "Sampling: every 0.5, 1 or 2 s"),
+				new("Backspace", "Back a step: let go, zoom out, clear, live", Surface.Terminal),
 			]),
 			new("Mouse",
 			[
@@ -81,7 +82,6 @@ public static class KeyMap
 			new("Selection",
 			[
 				new("Enter", "Zoom in on the selection", Surface.Terminal),
-				new("Backspace", "Zoom out again", Surface.Terminal),
 				new("E", "Save the selection as a recording", Surface.Terminal),
 				new("Y", "Copy its summary to the clipboard", Surface.Terminal),
 				new("B", "Make it the baseline (no selection: clear)", Surface.Terminal),
@@ -120,8 +120,8 @@ public static class KeyMap
 
 	/// <summary>The footer of the terminal: the keys to start with, the rest is behind <c>?</c>.</summary>
 	public static string Hints(int graphCount, bool replay) => replay
-		? $"Space play · ← → scroll · H zoom · 1-{Processing.Graph.KeyOf(graphCount - 1)} graphs · ? help · Q quit"
-		: $"Space pause · ← → scroll · Drag select · Right-click menu · 1-{Processing.Graph.KeyOf(graphCount - 1)} graphs · ? help · Q quit";
+		? $"Space play · ← → scroll · H zoom · Backspace back · 1-{Processing.Graph.KeyOf(graphCount - 1)} graphs · ? help · Q quit"
+		: $"Space pause · ← → scroll · Drag select · Right-click menu · Backspace back · 1-{Processing.Graph.KeyOf(graphCount - 1)} graphs · ? help · Q quit";
 
 	/// <summary>The keys a hint of the footer may start with; a click on the hint presses that key.</summary>
 	private static readonly HashSet<string> FooterKeys =

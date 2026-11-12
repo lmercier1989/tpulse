@@ -13,6 +13,7 @@ public sealed class KeyMapTests
 	[InlineData("menu", "Right-click")]
 	[InlineData("help", "?")]
 	[InlineData("quit", "Q")]
+	[InlineData("back ", "Backspace")]
 	[InlineData("1 min", "H")]
 	[InlineData("every", "R")]
 	public void FooterKeyAt_AHint_IsItsKey(string text, string key)
