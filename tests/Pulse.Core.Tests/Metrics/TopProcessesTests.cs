@@ -70,8 +70,8 @@ public sealed class TopProcessesTests
 	public void FirstLine_CutsTheWindowsEventToOneRow()
 	{
 		// Act & Assert
-		Assert.Equal("Faulting application name: devenv.exe", WindowsEventSource.FirstLine("  Faulting application name: devenv.exe\r\nFaulting module: x.dll"));
-		Assert.Equal(string.Empty, WindowsEventSource.FirstLine(null));
-		Assert.Equal(160, WindowsEventSource.FirstLine(new string('x', 400)).Length);
+		Assert.Equal("Faulting application name: devenv.exe", EventText.FirstLine("  Faulting application name: devenv.exe\r\nFaulting module: x.dll"));
+		Assert.Equal(string.Empty, EventText.FirstLine(null));
+		Assert.Equal(160, EventText.FirstLine(new string('x', 400)).Length);
 	}
 }

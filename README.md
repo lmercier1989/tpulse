@@ -5,7 +5,7 @@
 <h1 align="center">Pulse</h1>
 
 <p align="center">
-  A system monitor for Windows Terminal that looks like an oscilloscope.<br>
+  A system monitor for Windows Terminal (and Linux terminals) that looks like an oscilloscope.<br>
   CPU, GPU, memory, disk and network as smooth, scrolling traces, right in your terminal tab.
 </p>
 
@@ -42,6 +42,22 @@ Open Windows Terminal and pick **Pulse** from the **+** menu, or just type `tpul
 The installer works for your user only. It adds the program, a PATH entry, a Windows Terminal profile and a
 Start menu shortcut, and `./install.ps1 -Uninstall` removes them again. If PowerShell refuses to run scripts, use
 `powershell -ExecutionPolicy Bypass -File install.ps1`.
+
+### Linux
+
+The terminal monitor runs on Linux too (x86_64 and aarch64), in any terminal; with Sixel support (foot, WezTerm,
+Konsole, xterm -ti vt340, recent tmux) the graphs are pixels, elsewhere braille. You need the
+[.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0). Clone this repository, then run from its folder:
+
+```bash
+./install.sh
+```
+
+It puts the program in `~/.local/share/pulse` and the `tpulse` command in `~/.local/bin`, and
+`./install.sh --uninstall` removes them again. Everything below works the same, except what needs Windows: the window
+(`-window`), other machines (`-host`), performance counters (`-counter`) and the Windows Terminal tab. Errors come
+from the systemd journal instead of the Windows logs, and notifications go through `notify-send`.
+[What is measured where](docs/hardware-metrics.md#linux) lists the sources.
 
 ## Use
 
@@ -315,7 +331,7 @@ Pulse starts with five samples:
 - **Other terminals.** Without Sixel support Pulse draws with braille characters. Prefer a separate window? Use `tpulse -window`.
 - **Sensors.** The CPU temperature is the ACPI zone Windows provides (often a board sensor), and GPU power is
   NVIDIA only. See [what is measured where](docs/hardware-metrics.md).
-- **Settings and logs** live in `%LOCALAPPDATA%\Pulse`.
+- **Settings and logs** live in `%LOCALAPPDATA%\Pulse` (on Linux `~/.local/share/Pulse`).
 - **Not in the + menu yet?** Close all Windows Terminal windows once; it reads new profiles on start.
 
 ## For developers
@@ -326,5 +342,10 @@ Pulse starts with five samples:
 ./build.ps1 -Publish    # single-file tpulse.exe in artifacts\
 ```
 
-C# on .NET 10. Metrics come from PDH, DXGI, D3DKMT, NVML and IP Helper; the graphs are rasterized in software and
+On Linux, `dotnet build Pulse.slnx` and `dotnet test --solution Pulse.slnx` build and test the Linux variant
+(`net10.0`, terminal only); `-p:PulseWindows=true` cross-compiles the Windows one. Platform code lives in
+`*.Windows.cs` and `*.Linux.cs` files, which each build leaves out for the other platform.
+
+C# on .NET 10. Metrics come from PDH, DXGI, D3DKMT, NVML and IP Helper on Windows, from `/proc`, `/sys` and NVML on
+Linux; the graphs are rasterized in software and
 sent to the terminal as Sixel. [How it works](docs/how-it-works.md) explains the architecture and the rendering.

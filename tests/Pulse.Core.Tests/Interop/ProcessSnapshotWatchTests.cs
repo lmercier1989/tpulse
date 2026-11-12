@@ -14,7 +14,7 @@ public sealed class ProcessSnapshotWatchTests
 
 		// Arrange
 		using var self = Process.GetCurrentProcess();
-		var snapshot = new ProcessSnapshot { WatchedNames = ["", "no-such-image.exe", self.ProcessName + ".exe"] };
+		var snapshot = new ProcessSnapshot { WatchedNames = ["", "no-such-image.exe", OperatingSystem.IsWindows() ? self.ProcessName + ".exe" : self.ProcessName] };
 
 		// Act
 		var record = Assert.Single(snapshot.Take().ToArray(), r => r.Id == Environment.ProcessId);

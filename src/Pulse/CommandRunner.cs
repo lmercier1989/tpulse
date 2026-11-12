@@ -80,14 +80,35 @@ internal static class CommandRunner
 	}
 
 	/// <summary>Who puts a mark: the folder the shell is in, such as the repository being built.</summary>
-	public static string Source() => Path.GetFileName(Environment.CurrentDirectory.TrimEnd('\\')) is { Length: > 0 } folder ? folder : "tpulse";
+	public static string Source() => Path.GetFileName(Environment.CurrentDirectory.TrimEnd('\\', '/')) is { Length: > 0 } folder ? folder : "tpulse";
 
 	/// <summary>
 	/// A program (.exe) runs directly with its arguments; anything else (npm.cmd, a .bat, a shell built-in) runs through
-	/// cmd, which finds and runs it the way the shell does.
+	/// cmd, which finds and runs it the way the shell does. On Linux a program on PATH runs directly, anything else (a
+	/// shell built-in or function) through /bin/sh.
 	/// </summary>
 	private static ProcessStartInfo StartInfo(IReadOnlyList<string> command)
 	{
+		if (!OperatingSystem.IsWindows())
+		{
+			var found = Resolve(command[0]);
+			var start = new ProcessStartInfo(found ?? "/bin/sh") { UseShellExecute = false };
+			if (found is null)
+			{
+				start.ArgumentList.Add("-c");
+				start.ArgumentList.Add(string.Join(' ', command.Select(ShellQuote)));
+			}
+			else
+			{
+				foreach (var argument in command.Skip(1))
+				{
+					start.ArgumentList.Add(argument);
+				}
+			}
+
+			return start;
+		}
+
 		if (Resolve(command[0]) is { } program && Path.GetExtension(program).ToLowerInvariant() is ".exe" or ".com")
 		{
 			var direct = new ProcessStartInfo(program) { UseShellExecute = false };
@@ -109,6 +130,18 @@ internal static class CommandRunner
 	/// <summary>The file <paramref name="name"/> stands for: a path as it is, else the first match on PATH with an extension of PATHEXT.</summary>
 	private static string? Resolve(string name)
 	{
+#if !WINDOWS
+		if (!OperatingSystem.IsWindows())
+		{
+			IEnumerable<string> places = name.Contains('/')
+				? [name]
+				: (Environment.GetEnvironmentVariable("PATH") ?? string.Empty).Split(':', StringSplitOptions.RemoveEmptyEntries).Select(folder => Path.Combine(folder, name));
+			return places.FirstOrDefault(path => File.Exists(path) && (File.GetUnixFileMode(path) & (UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute)) != 0) is { } found
+				? Path.GetFullPath(found)
+				: null;
+		}
+#endif
+
 		var extensions = (Environment.GetEnvironmentVariable("PATHEXT") ?? ".COM;.EXE;.BAT;.CMD").Split(';', StringSplitOptions.RemoveEmptyEntries);
 		IEnumerable<string> folders = name.Contains('\\') || name.Contains('/')
 			? [string.Empty]
@@ -132,6 +165,12 @@ internal static class CommandRunner
 
 		return null;
 	}
+
+	/// <summary>An argument for /bin/sh: in single quotes unless it is plain.</summary>
+	private static string ShellQuote(string argument)
+		=> argument.Length > 0 && argument.All(c => char.IsAsciiLetterOrDigit(c) || "-_./=:,+@%".Contains(c, StringComparison.Ordinal))
+			? argument
+			: $"'{argument.Replace("'", "'\\''", StringComparison.Ordinal)}'";
 
 	private static string Quote(string argument) => argument.Length == 0 || argument.Contains(' ', StringComparison.Ordinal) ? $"\"{argument}\"" : argument;
 }

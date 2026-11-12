@@ -2,7 +2,7 @@ using Pulse.Core.Metrics;
 
 namespace Pulse.Core.Tests.Metrics;
 
-/// <summary>Reads the real counters of the machine the tests run on; only checks what every Windows system has.</summary>
+/// <summary>Reads the real counters of the machine the tests run on; only checks what every Windows and Linux system has.</summary>
 public sealed class SystemMetricsCollectorTests
 {
 	[Fact]

@@ -1,31 +1,42 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <!-- A console program: it draws inside the terminal; -window starts a detached graphical window. -->
+    <!-- A console program: it draws inside the terminal; on Windows, -window starts a detached graphical window. -->
     <OutputType>Exe</OutputType>
+    <AssemblyName>tpulse</AssemblyName>
+    <RootNamespace>Pulse</RootNamespace>
+    <StartupObject>Pulse.Program</StartupObject>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyTitle>Pulse system monitor</AssemblyTitle>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(PulseWindows)' == 'true'">
     <UseWPF>true</UseWPF>
     <!-- Only for the notification-area icon behind the Windows notifications (Notifier). -->
     <UseWindowsForms>true</UseWindowsForms>
     <!-- WFO0003 asks Windows Forms apps to set high DPI in code; the manifest setting is for the WPF window and stays. -->
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
-    <AssemblyName>tpulse</AssemblyName>
-    <RootNamespace>Pulse</RootNamespace>
-    <StartupObject>Pulse.Program</StartupObject>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>pulse.ico</ApplicationIcon>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <AssemblyTitle>Pulse system monitor</AssemblyTitle>
   </PropertyGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(PulseWindows)' == 'true'">
     <!-- Program.Main starts the WPF application itself, so App.xaml only provides resources. -->
     <ApplicationDefinition Remove="App.xaml" />
     <Page Include="App.xaml" />
+    <Compile Remove="**/*.Linux.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(PulseWindows)' != 'true'">
+    <!-- Linux: the terminal monitor only. The WPF window, its rendering and the DWM styling are Windows-only. -->
+    <Compile Remove="**/*.Windows.cs" />
+    <Compile Remove="App.xaml.cs;MainWindow.xaml.cs;ChannelPanel.xaml.cs;Rendering/**;Interop/**" />
+    <None Remove="**/*.xaml" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- Next to tpulse.exe, for the Windows Terminal profile and the Start menu shortcut. -->
-    <Content Include="pulse.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="pulse.ico" Condition="'$(PulseWindows)' == 'true'" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
   </ItemGroup>
 
   <ItemGroup>

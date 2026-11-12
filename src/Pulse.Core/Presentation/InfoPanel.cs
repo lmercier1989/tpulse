@@ -129,7 +129,7 @@ public static class InfoPanel
 		if (details is not null)
 		{
 			lines.Add(Field("host", details.HostName, 1, emphasis: true, right: details.Remote ? "remote" : string.Empty));
-			AddIf(lines, "windows", details.OperatingSystem, 3);
+			AddIf(lines, OperatingSystem.IsWindows() ? "windows" : "os", details.OperatingSystem, 3);
 		}
 
 		if (uptime is { } up)

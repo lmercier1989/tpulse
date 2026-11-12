@@ -15,7 +15,6 @@ internal sealed class WindowsEventSource : IDisposable
 	private static readonly string[] Logs = ["System", "Application"];
 	private static readonly TimeSpan RepeatWindow = TimeSpan.FromMinutes(5);
 	private const string ErrorsAndCritical = "*[System[(Level=1 or Level=2)]]";
-	private const int TextLength = 160;
 
 	private readonly List<EventLogWatcher> _watchers = [];
 	private readonly ConcurrentQueue<(DateTimeOffset At, string Source, string Action, string Text)> _arrived = new();
@@ -73,22 +72,7 @@ internal sealed class WindowsEventSource : IDisposable
 	}
 
 	/// <summary>"Faulting application name: devenv.exe, ..." becomes its first line, cut to a panel row.</summary>
-	internal static string FirstLine(string? description)
-	{
-		if (string.IsNullOrWhiteSpace(description))
-		{
-			return string.Empty;
-		}
-
-		var text = description.AsSpan().Trim();
-		var end = text.IndexOfAny('\r', '\n');
-		if (end >= 0)
-		{
-			text = text[..end];
-		}
-
-		return text.Length > TextLength ? string.Concat(text[..(TextLength - 1)], "…") : text.ToString();
-	}
+	internal static string FirstLine(string? description) => EventText.FirstLine(description);
 
 	private void OnRecord(object? sender, EventRecordWrittenEventArgs e)
 	{

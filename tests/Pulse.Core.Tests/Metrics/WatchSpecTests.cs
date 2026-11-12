@@ -45,6 +45,6 @@ public sealed class WatchSpecTests
 		];
 
 		// Act & Assert
-		Assert.Equal(["devenv.exe", "", ""], ProcessWatches.ImageNames(watches));
+		Assert.Equal([OperatingSystem.IsWindows() ? "devenv.exe" : "devenv", "", ""], ProcessWatches.ImageNames(watches));
 	}
 }

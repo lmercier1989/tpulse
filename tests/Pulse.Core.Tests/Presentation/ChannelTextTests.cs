@@ -47,7 +47,7 @@ public sealed class ChannelTextTests
 		// Assert
 		Assert.Equal("42%", readout.PrimaryValue);
 		Assert.Equal("min 42% · max 42%", readout.Stats);
-		Assert.EndsWith("ACPI zone 51 °C", readout.Detail);
+		Assert.EndsWith(OperatingSystem.IsWindows() ? "ACPI zone 51 °C" : "temp 51 °C", readout.Detail);
 		Assert.Equal(string.Empty, readout.Scale);
 	}
 

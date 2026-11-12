@@ -235,16 +235,3 @@ internal struct D3dkmtAdapterPerfData
 	public uint Temperature;
 	public byte PowerStateOverride;
 }
-
-/// <summary>nvmlPciInfo_t (68 bytes); <see cref="PciDeviceId"/> is (device id &lt;&lt; 16) | vendor id.</summary>
-[StructLayout(LayoutKind.Sequential)]
-internal unsafe struct NvmlPciInfo
-{
-	public fixed byte BusIdLegacy[16];
-	public uint Domain;
-	public uint Bus;
-	public uint Device;
-	public uint PciDeviceId;
-	public uint PciSubSystemId;
-	public fixed byte BusId[32];
-}

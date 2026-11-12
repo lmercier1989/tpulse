@@ -1,16 +1,15 @@
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
-using System.Runtime.InteropServices;
-
-using Microsoft.Win32;
 
 using Pulse.Core.Diagnostics;
-using Pulse.Core.Interop;
 
 namespace Pulse.Core.Metrics;
 
-/// <summary>Reads <see cref="SystemDetails"/>. Every part is read on its own, so one failing part leaves the rest.</summary>
-internal static class SystemDetailsReader
+/// <summary>
+/// Reads <see cref="SystemDetails"/>. Every part is read on its own, so one failing part leaves the rest. The operating
+/// system, the volumes and the battery come from the platform part (SystemDetailsReader.Windows.cs or .Linux.cs).
+/// </summary>
+internal static partial class SystemDetailsReader
 {
 	private static readonly Lazy<string> OperatingSystemName = new(ReadOperatingSystem);
 
@@ -36,42 +35,6 @@ internal static class SystemDetailsReader
 		var version = string.IsNullOrWhiteSpace(displayVersion) ? string.Empty : $" {displayVersion.Trim()}";
 		var buildText = string.IsNullOrWhiteSpace(build) ? string.Empty : revision is { } r ? $" ({build}.{r})" : $" ({build})";
 		return name + version + buildText;
-	}
-
-	private static string ReadOperatingSystem()
-	{
-		try
-		{
-			using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
-			return DescribeWindows(
-				key?.GetValue("ProductName") as string,
-				key?.GetValue("DisplayVersion") as string,
-				key?.GetValue("CurrentBuild") as string,
-				key?.GetValue("UBR") is int revision ? revision : null);
-		}
-		catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException)
-		{
-			Log.WarnOnce("details-os", "Could not read the Windows version.", ex);
-			return Environment.OSVersion.VersionString;
-		}
-	}
-
-	/// <summary>Fixed and removable volumes that are ready, by drive letter.</summary>
-	private static IReadOnlyList<DiskSpace> ReadDisks()
-	{
-		var disks = new List<DiskSpace>();
-		foreach (var drive in DriveInfo.GetDrives())
-		{
-			if (drive.DriveType is not (DriveType.Fixed or DriveType.Removable) || !drive.IsReady)
-			{
-				continue;
-			}
-
-			disks.Add(new DiskSpace(drive.Name.TrimEnd('\\'), drive.VolumeLabel, drive.TotalSize, drive.TotalFreeSpace));
-		}
-
-		disks.Sort((a, b) => string.CompareOrdinal(a.Name, b.Name));
-		return disks;
 	}
 
 	/// <summary>The connection with a default gateway (the one traffic leaves through), else the first one with an address.</summary>
@@ -110,7 +73,7 @@ internal static class SystemDetailsReader
 			u.Address.AddressFamily == AddressFamily.InterNetworkV6
 			&& !u.Address.IsIPv6LinkLocal
 			&& !u.Address.IsIPv6SiteLocal
-			&& u.SuffixOrigin != SuffixOrigin.Random);
+			&& (!OperatingSystem.IsWindows() || u.SuffixOrigin != SuffixOrigin.Random));
 		var gateway = bestProperties.GatewayAddresses.FirstOrDefault(g => g.Address.AddressFamily == AddressFamily.InterNetwork);
 		var dns = bestProperties.DnsAddresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork)
 				  ?? bestProperties.DnsAddresses.FirstOrDefault();
@@ -122,23 +85,6 @@ internal static class SystemDetailsReader
 			dns?.ToString(),
 			ipv6?.Address.ToString(),
 			best.Speed);
-	}
-
-	/// <summary>The battery, or null on a machine without one.</summary>
-	private static BatteryStatus? ReadBattery()
-	{
-		const byte NoBattery = 128;
-		const byte Unknown = 255;
-		const byte Charging = 8;
-
-		if (!Native.GetSystemPowerStatus(out var status)
-			|| status.BatteryFlag is NoBattery or Unknown
-			|| status.BatteryLifePercent > 100)
-		{
-			return null;
-		}
-
-		return new BatteryStatus(status.BatteryLifePercent, (status.BatteryFlag & Charging) != 0, status.ACLineStatus == 1);
 	}
 
 	private static T Guard<T>(string part, Func<T> read, T fallback)
@@ -153,16 +99,4 @@ internal static class SystemDetailsReader
 			return fallback;
 		}
 	}
-}
-
-/// <summary>SYSTEM_POWER_STATUS.</summary>
-[StructLayout(LayoutKind.Sequential)]
-internal struct SystemPowerStatus
-{
-	public byte ACLineStatus;
-	public byte BatteryFlag;
-	public byte BatteryLifePercent;
-	public byte SystemStatusFlag;
-	public uint BatteryLifeTime;
-	public uint BatteryFullLifeTime;
 }
