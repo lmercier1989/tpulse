@@ -1,6 +1,12 @@
 <Project>
   <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- Windows builds everything, the window included; elsewhere (Linux) only the terminal monitor. Override with
+         -p:PulseWindows=true or false. -->
+    <PulseWindows Condition="'$(PulseWindows)' == ''">$([MSBuild]::IsOSPlatform('Windows'))</PulseWindows>
+    <TargetFramework Condition="'$(PulseWindows)' == 'true'">net10.0-windows</TargetFramework>
+    <TargetFramework Condition="'$(PulseWindows)' != 'true'">net10.0</TargetFramework>
+    <!-- Building the Windows variant on another OS needs the Windows targeting packs. -->
+    <EnableWindowsTargeting Condition="'$(PulseWindows)' == 'true'">true</EnableWindowsTargeting>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>

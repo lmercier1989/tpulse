@@ -131,7 +131,7 @@ public static class ChannelText
 				Detail = Join(
 					info.CpuName,
 					Threads(info, sample),
-					double.IsFinite(sample.CpuTemperatureCelsius) ? $"ACPI zone {Units.Celsius(sample.CpuTemperatureCelsius)}" : null),
+					double.IsFinite(sample.CpuTemperatureCelsius) ? $"{(OperatingSystem.IsWindows() ? "ACPI zone" : "temp")} {Units.Celsius(sample.CpuTemperatureCelsius)}" : null),
 				Stats = showStats ? MinMax(channel.PrimaryRange, Units.Percent) : string.Empty,
 			},
 			MetricKind.Gpu => readout with

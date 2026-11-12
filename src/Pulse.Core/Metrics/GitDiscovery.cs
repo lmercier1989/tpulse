@@ -3,7 +3,8 @@ namespace Pulse.Core.Metrics;
 /// <summary>
 /// Finds git repositories without being told where they are: in the usual places (two folders deep on every fixed
 /// drive, such as <c>D:\Repos\Webshop</c>, and three deep in the user folder, such as <c>source\repos\App</c>), and in
-/// the folder any process works in. Windows folders, program folders, AppData, hidden folders and links are skipped,
+/// the folder any process works in (on Linux: three deep in the home folder, two on volumes mounted for data). Windows
+/// folders, program folders, AppData, hidden folders and links are skipped,
 /// and a repository is not looked into, so a scan touches a few thousand folders at most.
 /// </summary>
 internal static class GitDiscovery
@@ -22,7 +23,7 @@ internal static class GitDiscovery
 	{
 		foreach (var drive in DriveInfo.GetDrives())
 		{
-			if (drive.DriveType == DriveType.Fixed && drive.IsReady)
+			if (drive.DriveType == DriveType.Fixed && drive.IsReady && IsDataVolume(drive.RootDirectory.FullName))
 			{
 				yield return (drive.RootDirectory.FullName, 2);
 			}
@@ -105,6 +106,18 @@ internal static class GitDiscovery
 
 		return root;
 	}
+
+	/// <summary>
+	/// Every drive on Windows. On Linux the root and the system mounts hold no repositories; the volumes someone mounted
+	/// for data (under /mnt, /media, /run/media, /srv or /data) may.
+	/// </summary>
+	internal static bool IsDataVolume(string root)
+		=> OperatingSystem.IsWindows()
+		   || root.TrimEnd('/') is { Length: > 0 } path
+		   && (path.StartsWith("/mnt/", StringComparison.Ordinal)
+			   || path.StartsWith("/media/", StringComparison.Ordinal)
+			   || path.StartsWith("/run/media/", StringComparison.Ordinal)
+			   || path is "/srv" or "/data" || path.StartsWith("/data/", StringComparison.Ordinal));
 
 	public static bool IsWorkingTree(string folder)
 	{

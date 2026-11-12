@@ -99,7 +99,8 @@ internal sealed partial class TerminalApp
 		for (var i = 0; i < area.Rows; i++)
 		{
 			var row = area.Row + i;
-			_frame.MoveTo(row, area.Column).Background(FlyoutBackground).Ascii("\u001b[").Number(area.Width).Byte('X');
+			// Blanked, not erased, so the graph images under the menu stay (Konsole deletes an image a cell of which is erased).
+			_frame.MoveTo(row, area.Column).Background(FlyoutBackground).Blank(area.Width);
 			var index = i - 1;
 			if (index < 0 || index >= _menu.Count)
 			{
@@ -114,7 +115,7 @@ internal sealed partial class TerminalApp
 			}
 
 			var selected = index == _menuSelected;
-			_frame.MoveTo(row, area.Column + 1).Background(selected ? MenuSelection : FlyoutBackground).Ascii("\u001b[").Number(area.Width - 2).Byte('X')
+			_frame.MoveTo(row, area.Column + 1).Background(selected ? MenuSelection : FlyoutBackground).Blank(area.Width - 2).MoveTo(row, area.Column + 1)
 				.Foreground(selected ? ScopeColors.TextPrimary : ScopeColors.TextSecondary)
 				.Text(" " + HeaderLine.Fit(item.Text, area.Width - 6 - item.Key.Length));
 			if (item.Key.Length > 0)
@@ -355,7 +356,7 @@ internal sealed partial class TerminalApp
 				any = true;
 				break;
 			case { Kind: PanelLinkKind.Disk } disk:
-				yield return new("Open in Explorer", string.Empty, () => OpenFolder(disk.Value));
+				yield return new(OperatingSystem.IsWindows() ? "Open in Explorer" : "Open the folder", string.Empty, () => OpenFolder(disk.Value));
 				any = true;
 				break;
 		}
@@ -428,19 +429,8 @@ internal sealed partial class TerminalApp
 
 	// ---- What the menu does --------------------------------------------------------------------------
 
-	/// <summary>Puts <paramref name="text"/> on the clipboard (the main thread is a single-threaded apartment).</summary>
-	private void Copy(string text)
-	{
-		try
-		{
-			System.Windows.Clipboard.SetText(text);
-			Toast(Messages.Copied);
-		}
-		catch (Exception ex) when (ex is System.Runtime.InteropServices.ExternalException or ThreadStateException)
-		{
-			Toast(Messages.ClipboardBusy);
-		}
-	}
+	/// <summary>Puts <paramref name="text"/> on the clipboard (on Windows the main thread is a single-threaded apartment).</summary>
+	private void Copy(string text) => Toast(TextClipboard.TrySetText(text) ? Messages.Copied : Messages.ClipboardBusy);
 
 	/// <summary>The values of every shown graph at <paramref name="time"/>, and the moment as the flyout shows it, as text.</summary>
 	private void CopyMoment(double time)
@@ -559,16 +549,37 @@ internal sealed partial class TerminalApp
 		Toast(Messages.Following(name, Graph.KeyOf(index)), 4);
 	}
 
+	/// <summary>The folder in Explorer, or in the file manager of the desktop through xdg-open on Linux.</summary>
 	private void OpenFolder(string path)
 	{
-		var start = new ProcessStartInfo("explorer.exe") { UseShellExecute = false };
+		var start = new ProcessStartInfo(OperatingSystem.IsWindows() ? "explorer.exe" : "xdg-open") { UseShellExecute = false };
 		start.ArgumentList.Add(path);
 		Launch(start);
 	}
 
-	/// <summary>A new Windows Terminal tab in <paramref name="path"/>, or a PowerShell window there without Windows Terminal.</summary>
+	/// <summary>
+	/// A new Windows Terminal tab in <paramref name="path"/>, or a PowerShell window there without Windows Terminal. On
+	/// Linux: the terminal of $TERMINAL, xdg-terminal-exec or the first common terminal on the PATH, started in that folder.
+	/// </summary>
 	private void OpenTerminal(string path)
 	{
+		if (!OperatingSystem.IsWindows())
+		{
+			string[] candidates =
+			[
+				Environment.GetEnvironmentVariable("TERMINAL") ?? string.Empty, "xdg-terminal-exec", "x-terminal-emulator", "kgx",
+				"gnome-terminal", "konsole", "xfce4-terminal", "foot", "alacritty", "kitty", "wezterm", "ghostty", "xterm",
+			];
+			if (candidates.FirstOrDefault(name => name.Length > 0 && OnPath(name)) is not { } program)
+			{
+				Toast(Messages.NoTerminalProgram, 4);
+				return;
+			}
+
+			Launch(new ProcessStartInfo(program) { UseShellExecute = false, WorkingDirectory = path });
+			return;
+		}
+
 		var terminal = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "WindowsApps", "wt.exe");
 		if (File.Exists(terminal))
 		{
@@ -584,6 +595,13 @@ internal sealed partial class TerminalApp
 
 		Launch(new ProcessStartInfo("powershell.exe") { UseShellExecute = true, WorkingDirectory = path });
 	}
+
+	/// <summary>Whether <paramref name="program"/> is a path or a name on the PATH.</summary>
+	private static bool OnPath(string program)
+		=> program.Contains('/')
+			? File.Exists(program)
+			: (Environment.GetEnvironmentVariable("PATH") ?? string.Empty).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+				.Any(folder => File.Exists(Path.Combine(folder, program)));
 
 	private void Launch(ProcessStartInfo start)
 	{

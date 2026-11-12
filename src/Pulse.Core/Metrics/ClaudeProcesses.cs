@@ -41,8 +41,9 @@ internal enum ClaudeRole : byte
 
 /// <summary>
 /// Splits the load of Claude into the app, its sessions and the tools those sessions start, from a process snapshot.
-/// All of them run as claude.exe; the desktop app lives under WindowsApps (or AnthropicClaude), a session engine
-/// anywhere else (the app's claude-code folder, or a command-line install). Tools are every process below an engine,
+/// On Windows all of them run as claude.exe; the desktop app lives under WindowsApps (or AnthropicClaude), a session
+/// engine anywhere else (the app's claude-code folder, or a command-line install). On Linux the app runs as
+/// claude-desktop and an engine as claude. Tools are every process below an engine,
 /// at any depth, so a build started by a session counts for Claude. A parent only counts when it was created before
 /// its child, because Windows reuses process ids.
 /// </summary>
@@ -152,6 +153,17 @@ internal sealed class ClaudeProcesses
 		}
 	}
 
+	/// <summary>
+	/// Whether the image at <paramref name="path"/> is a Claude Code engine rather than the desktop app: on Windows the app
+	/// runs from WindowsApps\Claude_* or AnthropicClaude, on Linux as claude-desktop; null (unreadable) counts as the app.
+	/// </summary>
+	internal static bool IsEnginePath(string? path)
+		=> path is not null
+		   && (OperatingSystem.IsWindows()
+			   ? !path.Contains(@"\WindowsApps\Claude_", StringComparison.OrdinalIgnoreCase)
+				 && !path.Contains(@"\AnthropicClaude\", StringComparison.OrdinalIgnoreCase)
+			   : !Path.GetFileName(path).Equals("claude-desktop", StringComparison.Ordinal));
+
 	private bool IsEngine(ProcessRecord record)
 	{
 		var key = (record.Id, record.CreateTime);
@@ -161,9 +173,7 @@ internal sealed class ClaudeProcesses
 		}
 
 		var path = ProcessSnapshot.ImagePath(record.Id);
-		engine = path is not null
-				 && !path.Contains(@"\WindowsApps\Claude_", StringComparison.OrdinalIgnoreCase)
-				 && !path.Contains(@"\AnthropicClaude\", StringComparison.OrdinalIgnoreCase);
+		engine = IsEnginePath(path);
 		_engines[key] = engine;
 		return engine;
 	}

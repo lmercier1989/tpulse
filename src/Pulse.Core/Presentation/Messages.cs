@@ -49,6 +49,8 @@ public static class Messages
 
 	public const string Copied = "Copied to the clipboard";
 
+	public const string NoTerminalProgram = "No terminal program found · set $TERMINAL";
+
 	public const string ClipboardBusy = "The clipboard is busy · Y again";
 
 	public static string Stacked(bool on) => on ? "CPU stacked by process" : "CPU as one trace";

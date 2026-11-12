@@ -27,7 +27,7 @@ public sealed class RemotePanelTests
 		Assert.Contains(lines, line => line is { Label: "host", Text: "sql01", Right: "remote" });
 		Assert.Contains(lines, line => line is { Label: "ping", Text: "3 ms" });
 		Assert.Contains(lines, line => line is { Label: "ipv4", Text: "10.1.2.30" });
-		Assert.DoesNotContain(lines, line => line.Label is "windows" or "gateway");
+		Assert.DoesNotContain(lines, line => line.Label is "windows" or "os" or "gateway");
 	}
 
 	[Fact]

@@ -92,7 +92,7 @@ public static class KeyMap
 				new("mark", "tpulse -mark; start and end of tpulse --", Marker: EventKind.Mark),
 				new("spike", "Far above its usual level, cause named", Marker: EventKind.Spike),
 				new("leak", "Memory that kept growing for ten minutes", Marker: EventKind.Leak),
-				new("error", "An error or critical event in the Windows logs", Marker: EventKind.Error),
+				new("error", OperatingSystem.IsWindows() ? "An error or critical event in the Windows logs" : "An error or critical message in the systemd journal", Marker: EventKind.Error),
 			]),
 			new("Screen",
 			[
@@ -103,7 +103,7 @@ public static class KeyMap
 				new("C", "Compact layout"),
 				new("T", "Always on top", Surface.Window),
 				new("F", "Frame rate: 30 or 60 fps"),
-				new("N", "Windows notifications"),
+				new("N", OperatingSystem.IsWindows() ? "Windows notifications" : "Desktop notifications"),
 				new("?", "This overview; again: the shell commands", Surface.Terminal),
 				new("F1, ?", "This overview", Surface.Window),
 				new("Q, Ctrl + C", "Quit", Surface.Terminal),
@@ -122,7 +122,9 @@ public static class KeyMap
 		: $"Space pause · ← → scroll · Drag select · Right-click menu · 1-{Processing.Graph.KeyOf(graphCount - 1)} graphs · ? help · Q quit";
 
 	/// <summary>What a shell can run: the second page of <c>?</c>, so no option has to be remembered.</summary>
-	public static IReadOnlyList<KeyBinding> ShellCommands { get; } =
+	public static IReadOnlyList<KeyBinding> ShellCommands { get; } = OperatingSystem.IsWindows() ? WindowsShellCommands() : LinuxShellCommands();
+
+	private static KeyBinding[] WindowsShellCommands() =>
 	[
 		new("tpulse", "Open Pulse in a tab of its own"),
 		new("tpulse -- dotnet build", "Measure a command: marks at its start and end, what it cost after"),
@@ -141,6 +143,25 @@ public static class KeyMap
 		new("tpulse -profiles", "List the profiles"),
 		new("tpulse -window", "A separate window instead of the terminal"),
 		new("tpulse -here", "Draw in this tab instead of a new one"),
+		new("tpulse -braille", "Braille characters instead of Sixel graphics"),
+		new("tpulse -help", "Every option, with examples"),
+	];
+
+	/// <summary>The commands of the Linux build: no other machines, counters, window or Windows Terminal tab.</summary>
+	private static KeyBinding[] LinuxShellCommands() =>
+	[
+		new("tpulse -- make -j8", "Measure a command: marks at its start and end, what it cost after"),
+		new("tpulse -mark deploy started", "Put a mark on every running Pulse"),
+		new("tpulse -cpu -memory -disk", "Only these graphs (also -gpu -network -claude -git -all)"),
+		new("tpulse -process firefox", "An extra graph for a process, by name or process id"),
+		new("tpulse -git ~/src", "Follow the repositories in that folder only"),
+		new("tpulse -history 5m -interval 0.5s", "How much history, how often a sample"),
+		new("tpulse -record", "Save every sample to a CSV file in ~/Documents/Pulse"),
+		new("tpulse -replay run.csv", "Play a recording (or a saved selection) back"),
+		new("tpulse -notify", "Desktop notifications: high load, full disk, git blocked, growing memory"),
+		new("tpulse -profile dev", "Start with the options saved as a profile"),
+		new("tpulse -save-profile dev -cpu -git", "Save options as a profile"),
+		new("tpulse -profiles", "List the profiles"),
 		new("tpulse -braille", "Braille characters instead of Sixel graphics"),
 		new("tpulse -help", "Every option, with examples"),
 	];

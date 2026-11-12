@@ -116,8 +116,11 @@ Which metrics come from where, and what Windows cannot provide, is in [hardware-
   marks where the trace meets the right edge.
 * **Pixels in the terminal.** Each graph is rasterized in software: the trace is sampled once per pixel column
   and every nearby pixel gets a coverage from its distance to the curve, in six anti-aliasing levels, over a
-  gradient fill. The image is sent as Sixel with only the drawn pixels encoded (the background is transparent
-  over cells erased to the panel colour), and only when it changed, all inside one synchronized update.
+  gradient fill. The image is sent as Sixel, background included in the panel colour, so it covers the previous one
+  without erasing first, and only when it changed, all inside one synchronized update. Under a flyout or menu a graph
+  is sent as up to four images around the box, so the box's text never falls into an image's first row; Konsole
+  deletes an image when that happens, or when any of its cells is erased, which is why boxes are blanked with
+  spaces rather than erased.
 * **Braille fallback.** Terminals without Sixel get 2 x 4 braille dots per cell in 24-bit colour, with the
   gradient fill as cell background.
 * **Gaps.** A pause, sleep or missing reading breaks the trace instead of drawing a line across it.

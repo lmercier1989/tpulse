@@ -79,7 +79,13 @@ public sealed class GitDiscoveryTests : IDisposable
 
 		// Arrange: a process that waits in a repository nobody named.
 		var root = Repository("shop");
-		using var waiting = Process.Start(new ProcessStartInfo("cmd.exe", "/c ping -n 30 127.0.0.1 > nul") { WorkingDirectory = root, CreateNoWindow = true, UseShellExecute = false })!;
+		var wait = OperatingSystem.IsWindows()
+			? new ProcessStartInfo("cmd.exe", "/c ping -n 30 127.0.0.1 > nul")
+			: new ProcessStartInfo("sleep", "30");
+		wait.WorkingDirectory = root;
+		wait.CreateNoWindow = true;
+		wait.UseShellExecute = false;
+		using var waiting = Process.Start(wait)!;
 		try
 		{
 			var monitor = GitMonitor.Discovering(Path.GetTempPath());

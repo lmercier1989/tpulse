@@ -6,10 +6,11 @@ namespace Pulse.Core.Terminal;
 /// that colour. Runs are compressed with the repeat introducer (<c>!</c>), and a colour pass starts at its first
 /// pixel and stops at its last.
 /// <para>
-/// Register 0 is the background and is never encoded: the image is transparent there (background select 1),
-/// so the cells behind it show, which the caller erases to the panel colour first. Terminals fill an opaque
-/// image background with their own default colour rather than the panel colour, and a scope is mostly
-/// background, so this is both correct and cheap. Allocation-free once its buffers have grown.
+/// Register 0 is the background. By default it is not encoded: the image is transparent there (background select
+/// 1), so the cells behind it show, which the caller erases to the panel colour first; a scope is mostly background,
+/// so this is cheap. Opaque, register 0 is defined as the panel colour and painted too, so a new image covers the
+/// previous one completely and no erase is needed: terminals that show the erase before the image (Konsole draws
+/// images outside synchronized updates) then do not flicker. Allocation-free once its buffers have grown.
 /// </para>
 /// </summary>
 public sealed class SixelEncoder
@@ -28,9 +29,13 @@ public sealed class SixelEncoder
 	private readonly byte[] _columnMask = new byte[Registers];
 	private int _activeCount;
 
-	/// <summary>Appends the image as one Sixel sequence, drawn at the cursor with square pixels.</summary>
-	public void Encode(ReadOnlySpan<byte> pixels, int width, int height, ScopePalette palette, AnsiWriter output)
+	/// <summary>
+	/// Appends the image as one Sixel sequence, drawn at the cursor with square pixels; <paramref name="opaque"/> paints
+	/// the background register too.
+	/// </summary>
+	public void Encode(ReadOnlySpan<byte> pixels, int width, int height, ScopePalette palette, AnsiWriter output, bool opaque = false)
 	{
+		var skipped = opaque ? -1 : BackgroundRegister;
 		// P2 = 1: pixels that are not drawn stay transparent.
 		output.Ascii("\u001bP0;1;0q\"1;1;").Number(width).Byte(';').Number(height);
 
@@ -40,7 +45,7 @@ public sealed class SixelEncoder
 			used[register] = true;
 		}
 
-		for (var register = 1; register < palette.Count; register++)
+		for (var register = opaque ? 0 : 1; register < palette.Count; register++)
 		{
 			if (used[register])
 			{
@@ -59,7 +64,7 @@ public sealed class SixelEncoder
 				for (var row = 0; row < rows; row++)
 				{
 					var register = pixels[((top + row) * width) + x];
-					if (register == BackgroundRegister)
+					if (register == skipped)
 					{
 						continue;
 					}

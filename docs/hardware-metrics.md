@@ -66,6 +66,28 @@ says what is missing.
 | Several GPUs at once | Pulse shows one GPU: the adapter with the most dedicated memory, which is the discrete GPU on laptops with switchable graphics. Every adapter found is listed in the log. |
 | Per-disk and per-adapter graphs | Pulse is an overview instrument; the busiest disk is named by its activity only. |
 
+## Linux
+
+The Linux build reads the kernel's own files, without root and without extra packages. What was found is written to
+`~/.local/share/Pulse/logs/pulse.log`.
+
+| Metric | Source | Notes |
+|---|---|---|
+| CPU utilization, per core | `/proc/stat` | Busy is everything but idle and iowait, per interval, like `top`. |
+| CPU temperature | hwmon: `k10temp` or `zenpower` (Tdie, else Tctl), `coretemp` (Package id 0), `cpu_thermal` on ARM boards; else the thermal zones `x86_pkg_temp` or `acpitz` | Shown as "temp". The die sensor, unlike the ACPI zone on Windows. |
+| GPU utilization, memory, temperature, power | AMD (and other DRM drivers with `gpu_busy_percent`): sysfs, edge temperature and `power1_average` from the card's hwmon. NVIDIA: NVML (`libnvidia-ml.so.1`) | The card with the most VRAM is shown. The name comes from the system's `pci.ids`. Intel graphics report no load in sysfs and are not shown. |
+| Memory | `/proc/meminfo` | Used = MemTotal minus MemAvailable. |
+| Disk throughput and activity | `/proc/diskstats` | Whole disks with hardware behind them (`/sys/block/*/device`): partitions, loop, zram, device-mapper and RAID are left out. Activity is the busiest disk's io_ticks. |
+| Network throughput | `/proc/net/dev` | Interfaces with hardware behind them (`/sys/class/net/*/device`) that are up; bridges, containers, VPN tunnels and loopback are left out. |
+| Processes (Claude, `-process`, busiest, growing memory) | `/proc/[pid]/stat`, `statm`, `io` | Private memory is resident minus shared (anonymous) memory. I/O is `rchar + wchar`, readable for your own processes only. The Claude app is `claude-desktop`, a Code session `claude`. |
+| Git process folders | `/proc/[pid]/cwd` | Repositories are found three folders deep in your home folder and two deep on volumes under `/mnt`, `/media`, `/run/media`, `/srv` and `/data`. |
+| Errors | `journalctl --follow --priority=3` | What your account may read: the whole system as a member of `wheel`, `adm` or `systemd-journal`, your own messages otherwise. |
+| Disk space | `/proc/mounts` | File systems on a block device, each once (btrfs subvolumes and bind mounts under their shortest mount point); `/boot` and `/efi` are left out. |
+| Battery | `/sys/class/power_supply` | System batteries only; a mouse or headset battery is not one. |
+| Notifications, clipboard | `notify-send`; `wl-copy`, `xclip` or `xsel`, else the terminal (OSC 52) | |
+
+Not on Linux: another machine (`-host`), performance counters (`-counter`) and the window (`-window`).
+
 ## Units
 
 * Throughput uses decimal prefixes: 1 MB/s = 1,000,000 bytes per second, 1 Mbps = 1,000,000 bits per second.

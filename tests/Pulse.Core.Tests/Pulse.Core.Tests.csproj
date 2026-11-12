@@ -22,6 +22,15 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <ItemGroup Condition="'$(PulseWindows)' == 'true'">
+    <Compile Remove="**/*.Linux.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(PulseWindows)' != 'true'">
+    <!-- The layouts of Windows structures, performance counters and other machines exist on Windows only. -->
+    <Compile Remove="Interop/InteropLayoutTests.cs;Metrics/WatchCollectorTests.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\Pulse.Core\Pulse.Core.csproj" />
   </ItemGroup>

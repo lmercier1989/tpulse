@@ -20,9 +20,12 @@ internal sealed class ProcessWatches
 		_totals = new Totals[watches.Count];
 	}
 
-	/// <summary>The image names a <see cref="ProcessSnapshot"/> should mark, by watch index ("" for none).</summary>
+	/// <summary>
+	/// The image names a <see cref="ProcessSnapshot"/> should mark, by watch index ("" for none): "devenv.exe" on Windows,
+	/// the program name as it is ("code") on Linux.
+	/// </summary>
 	public static string[] ImageNames(IReadOnlyList<WatchSpec> watches)
-		=> [.. watches.Select(watch => watch.ProcessName.Length > 0 ? watch.ProcessName + ".exe" : string.Empty)];
+		=> [.. watches.Select(watch => watch.ProcessName.Length == 0 ? string.Empty : OperatingSystem.IsWindows() ? watch.ProcessName + ".exe" : watch.ProcessName)];
 
 	/// <summary>Fills the reading of every process watch from <paramref name="records"/>, a snapshot of all processes.</summary>
 	public void Sample(ReadOnlySpan<ProcessRecord> records, double memoryTotalBytes, Span<WatchReading> readings)

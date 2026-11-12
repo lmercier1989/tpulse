@@ -10,10 +10,18 @@
     <InternalsVisibleTo Include="Pulse.Core.Tests" />
   </ItemGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(PulseWindows)' == 'true'">
     <!-- System.Diagnostics.Eventing.Reader (the Windows log errors) ships with the Windows desktop runtime, which
          tpulse needs anyway for its window. -->
     <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
+    <Compile Remove="**/*.Linux.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(PulseWindows)' != 'true'">
+    <!-- On Linux the metrics come from /proc and /sys (the *.Linux.cs files) instead of these Windows APIs. -->
+    <Compile Remove="**/*.Windows.cs" />
+    <Compile Remove="Interop/D3dkmtAdapter.cs;Interop/DxgiAdapters.cs;Interop/Native.cs;Interop/NetworkCounters.cs;Interop/PdhQuery.cs;Interop/ProcessDirectory.cs;Interop/ProcessSnapshot.cs" />
+    <Compile Remove="Metrics/SystemMetricsCollector.cs;Metrics/WindowsEventSource.cs" />
   </ItemGroup>
 
 </Project>

@@ -35,6 +35,24 @@ public sealed class AnsiWriter
 		return this;
 	}
 
+	/// <summary>
+	/// Blanks <paramref name="count"/> cells from the cursor with spaces in the current background. Unlike erasing
+	/// (<c>ECH</c>), writing over a Sixel image keeps the rest of it: Konsole deletes a whole image when any of its cells
+	/// is erased.
+	/// </summary>
+	public AnsiWriter Blank(int count)
+	{
+		if (count <= 0)
+		{
+			return this;
+		}
+
+		Ensure(count);
+		_buffer.AsSpan(_length, count).Fill((byte) ' ');
+		_length += count;
+		return this;
+	}
+
 	/// <summary>Appends ASCII text (escape sequences, Sixel data).</summary>
 	public AnsiWriter Ascii(string text)
 	{

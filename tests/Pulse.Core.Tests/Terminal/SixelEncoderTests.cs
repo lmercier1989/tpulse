@@ -84,12 +84,46 @@ public sealed class SixelEncoderTests
 		Assert.Contains($"#3;2;{Percent(color.R)};{Percent(color.G)};{Percent(color.B)}", sixel);
 	}
 
+	[Fact]
+	public void Encode_Opaque_PaintsTheBackgroundInThePanelColour()
+	{
+		// Arrange: one register-5 pixel on a background, 3 x 6.
+		var pixels = new byte[3 * 6];
+		pixels[(2 * 3) + 1] = 5;
+		var background = ScopePalette.Instance[0];
+
+		// Act
+		var sixel = Encode(pixels, 3, 6, opaque: true);
+
+		// Assert: register 0 is defined as the panel colour and covers every pixel but the drawn one.
+		Assert.Contains($"#0;2;{Percent(background.R)};{Percent(background.G)};{Percent(background.B)}", sixel);
+		Assert.Contains("#0~z~", sixel);
+		Assert.Contains("#5?C", sixel);
+	}
+
+	[Fact]
+	public void Encode_Opaque_DecodesToTheSameImage()
+	{
+		// Arrange
+		var pixels = new byte[10 * 9];
+		for (var i = 0; i < pixels.Length; i += 7)
+		{
+			pixels[i] = (byte) (1 + (i % 5));
+		}
+
+		// Act
+		var decoded = Decode(Encode(pixels, 10, 9, opaque: true), 10, 9);
+
+		// Assert
+		Assert.Equal(pixels, decoded);
+	}
+
 	private static int Percent(byte channel) => (int) Math.Round(channel * 100 / 255.0);
 
-	private static string Encode(byte[] pixels, int width, int height)
+	private static string Encode(byte[] pixels, int width, int height, bool opaque = false)
 	{
 		var output = new AnsiWriter();
-		new SixelEncoder().Encode(pixels, width, height, ScopePalette.Instance, output);
+		new SixelEncoder().Encode(pixels, width, height, ScopePalette.Instance, output, opaque);
 		return Encoding.ASCII.GetString(output.Written);
 	}
 

@@ -207,7 +207,9 @@ internal sealed class ClaudeTranscripts : IDisposable
 			}
 
 			var cwd = Text(root, "cwd");
-			session.Project = cwd.Length == 0 ? session.Project : Path.GetFileName(cwd.TrimEnd('\\', '/'));
+			// The last folder of either kind of path: a transcript may come from Windows or from Linux.
+			var folder = cwd.TrimEnd('\\', '/');
+			session.Project = cwd.Length == 0 ? session.Project : folder[(folder.LastIndexOfAny(['\\', '/']) + 1)..];
 			var branch = Text(root, "gitBranch");
 			session.Branch = branch.Length == 0 || branch == "HEAD" ? session.Branch : branch;
 			session.Model = model;

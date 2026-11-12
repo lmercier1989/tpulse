@@ -43,11 +43,11 @@ public sealed class LaunchOptions
 
         Extra graphs (keys 8, 9 and 0)
           -process <name>   CPU and memory of every process with that name, or of one process id
-          -counter <path>   Any performance counter by its English path, for example
+          -counter <path>   Windows: any performance counter by its English path, for example
                             "\Web Service(_Total)\Current Connections" (typeperf -q lists them)
                             Up to three -process and -counter graphs together.
 
-        Another machine
+        Another machine (Windows)
           -host <name>      Read the counters of another Windows machine over the network. It needs the
                             Remote Registry service there, and your account in its Performance Monitor Users
                             group (or an administrator there). GPU and Claude are read on this machine only.
@@ -61,7 +61,7 @@ public sealed class LaunchOptions
         Profiles and recordings
           -profile <name>   The options saved under that name (samples: claude, dev, server, web, sql)
           -save-profile <name> [options]   Save the options that follow under that name
-          -profiles         List the profiles (in %LOCALAPPDATA%\Pulse\profiles.json)
+          -profiles         List the profiles (in %LOCALAPPDATA%\Pulse, on Linux ~/.local/share/Pulse)
           -record [file]    Write every sample to CSV (default: Documents\Pulse\pulse-<time>.csv)
           -replay <file>    Play a recording back; scroll through it with the arrow keys
 
@@ -69,13 +69,13 @@ public sealed class LaunchOptions
           -history <time>   History shown: 30s, 60s or 5m (10s to 10m)
           -interval <time>  Sampling interval: 0.5s, 1s or 2s (250ms to 5s)
           -fps <n>          Highest frame rate, 15 to 120 (terminal default 30, window 60)
-          -notify           Windows notifications when a load stays high, a disk fills up or git is blocked
+          -notify           Desktop notifications when a load stays high, a disk fills up or git is blocked
           -cores            Show the per-core CPU traces
           -compact          Compact layout
           -sixel            Draw with Sixel pixel graphics (default when the terminal supports it)
           -braille          Draw with braille characters (works in every terminal)
           -here             Draw in this tab; in Windows Terminal, tpulse otherwise opens its own Pulse tab
-          -window           Open a separate window instead of drawing in the terminal
+          -window           Windows: open a separate window instead of drawing in the terminal
           -top              Keep that window on top
           -help             Show this help
           -version          Show the version

@@ -110,7 +110,7 @@ internal static class Program
 		// the shell, before a tab or a window opens and closes again.
 		if (!options.WindowHost && recording is null && (options.Host is not null || options.Watches.Count > 0 || options.GitPaths.Count > 0))
 		{
-			if (options.Host is not null)
+			if (options.Host is not null && OperatingSystem.IsWindows())
 			{
 				Console.WriteLine($"Connecting to {options.Host}...");
 			}
@@ -122,6 +122,7 @@ internal static class Program
 			}
 		}
 
+#if WINDOWS
 		if (options.Window && !options.WindowHost)
 		{
 			return StartDetachedWindow(args);
@@ -140,6 +141,13 @@ internal static class Program
 
 			return 0;
 		}
+#else
+		if (options.Window || options.WindowHost)
+		{
+			Console.Error.WriteLine("The Pulse window needs Windows; on this system Pulse draws in the terminal. Leave out -window.");
+			return 2;
+		}
+#endif
 
 		var dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Pulse");
 		Log.Initialize(Path.Combine(dataDirectory, "logs"));
@@ -164,17 +172,21 @@ internal static class Program
 				: options.Host is null || options.Metrics?.Contains(Core.Processing.MetricKind.Git) == true ? []
 				: null;
 			using var collector = recording is null ? SystemMetricsCollector.Create(options.Host, options.Watches, gitPaths) : null;
+#if WINDOWS
 			if (options.WindowHost)
 			{
 				var app = new App(collector!, store, saved, session, options.AffectsLayout);
 				app.InitializeComponent();
 				return app.Run();
 			}
+#endif
 
 			using var host = ConsoleHost.TryOpen();
 			if (host is null)
 			{
-				Console.Error.WriteLine("tpulse draws in a terminal, but its input or output is redirected. Run it in a terminal, or use tpulse -window.");
+				Console.Error.WriteLine(OperatingSystem.IsWindows()
+					? "tpulse draws in a terminal, but its input or output is redirected. Run it in a terminal, or use tpulse -window."
+					: "tpulse draws in a terminal, but its input or output is redirected. Run it in a terminal.");
 				return 1;
 			}
 
@@ -258,6 +270,7 @@ internal static class Program
 
 	private static string Quote(string argument) => argument.Contains(' ', StringComparison.Ordinal) ? $"\"{argument}\"" : argument;
 
+#if WINDOWS
 	/// <summary>Starts this executable again as a window without a console, and returns at once.</summary>
 	private static int StartDetachedWindow(string[] args)
 	{
@@ -280,4 +293,5 @@ internal static class Program
 		using var process = Process.Start(start);
 		return process is null ? 1 : 0;
 	}
+#endif
 }
