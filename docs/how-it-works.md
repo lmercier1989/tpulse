@@ -77,7 +77,7 @@ Which metrics come from where, and what Windows cannot provide, is in [hardware-
   background: every 5 seconds for an active repository (HEAD moved or a process worked in it in the last 10 minutes,
   every 30 when git is slow there), every minute for one with changes, at once when HEAD moved, never for one that
   rests; at most two at a time.
-* **Markers** are drawn before the traces, as a dashed line in the raster, in braille dots or as a WPF hairline, so a
+* **Markers** are drawn before the traces, as a dashed line in the raster, in braille dots or as an Avalonia hairline, so a
   trace always stays on top. A spike or a leak is drawn on its own graph only.
 * **Marks** go through `%LOCALAPPDATA%\Pulse\marks.log`: `tpulse -mark` and `tpulse -- command` append a line (time,
   action, source, text), and every running Pulse reads what was added since it started, once per sample. Past 256 KB
@@ -138,8 +138,8 @@ Which metrics come from where, and what Windows cannot provide, is in [hardware-
   headers show and whose busiest processes the panel lists. Pressing the button freezes that moment, which then wins
   over the cursor wherever the mouse goes: a press held for 0.4 s or longer lets go with the button, a shorter click
   keeps it until the next click on a plot or `Esc`; moving two cells or more with the button down selects a range
-  instead. Shift + drag still selects text. The window draws its tooltip in a popup of its own, because the WPF
-  tooltip service closes a tooltip on every mouse down.
+  instead. Shift + drag still selects text. The window draws its tooltip as a layer inside the window, so pressing the
+  button over it freezes it rather than closing it, and it never takes the mouse from the graph.
 * **One vocabulary.** The keys, the mouse gestures and the marker colours live in one key map (`KeyMap`), which the
   terminal's `?`, the window's `F1` and the README follow; a letter does the same on both surfaces or belongs to one.
   Messages after a key come from one place (`Messages`): sentence case, a hint to a key reads "Key verb" ("End live",
@@ -196,7 +196,7 @@ draws in the current tab instead, and outside Windows Terminal it always draws i
 ```
 src/Pulse.Core          metric sources (interop), sampling loop, ring buffer, scaling, curve planning,
                         terminal rendering (raster, Sixel, braille, layout, info panel), settings, command line
-src/Pulse               tpulse.exe: the terminal loop and console handling, and the WPF window for -window
+src/Pulse               tpulse(.exe): the terminal loop and console handling, and the Avalonia window for -window
 tests/Pulse.Core.Tests  xUnit tests: buffers, scaling, curves, rates, Sixel round trip, raster, layout, panel,
                         counter paths, process and counter graphs, the remote mode against this machine
 docs/                   these notes, hardware support and the screenshots

@@ -1,6 +1,9 @@
 using System.Diagnostics;
 using System.IO;
 
+using Avalonia;
+using Avalonia.Controls;
+
 using Pulse.Core.CommandLine;
 using Pulse.Core.Diagnostics;
 using Pulse.Core.Metrics;
@@ -122,11 +125,12 @@ internal static class Program
 			}
 		}
 
-#if WINDOWS
 		if (options.Window && !options.WindowHost)
 		{
 			return StartDetachedWindow(args);
 		}
+
+#if WINDOWS
 
 		// In Windows Terminal, Pulse gets a tab of its own rather than taking over the shell's tab. The recording file is
 		// chosen here and named in this shell, because the Pulse tab closes when Pulse quits.
@@ -140,12 +144,6 @@ internal static class Program
 			}
 
 			return 0;
-		}
-#else
-		if (options.Window || options.WindowHost)
-		{
-			Console.Error.WriteLine("The Pulse window needs Windows; on this system Pulse draws in the terminal. Leave out -window.");
-			return 2;
 		}
 #endif
 
@@ -172,21 +170,20 @@ internal static class Program
 				: options.Host is null || options.Metrics?.Contains(Core.Processing.MetricKind.Git) == true ? []
 				: null;
 			using var collector = recording is null ? SystemMetricsCollector.Create(options.Host, options.Watches, gitPaths) : null;
-#if WINDOWS
 			if (options.WindowHost)
 			{
-				var app = new App(collector!, store, saved, session, options.AffectsLayout);
-				app.InitializeComponent();
-				return app.Run();
+				return AppBuilder
+					.Configure(() => new App { Collector = collector, Store = store, Saved = saved, Settings = session, LayoutFromCommandLine = options.AffectsLayout })
+					.UsePlatformDetect()
+					.WithInterFont()
+					.LogToTrace()
+					.StartWithClassicDesktopLifetime([], ShutdownMode.OnMainWindowClose);
 			}
-#endif
 
 			using var host = ConsoleHost.TryOpen();
 			if (host is null)
 			{
-				Console.Error.WriteLine(OperatingSystem.IsWindows()
-					? "tpulse draws in a terminal, but its input or output is redirected. Run it in a terminal, or use tpulse -window."
-					: "tpulse draws in a terminal, but its input or output is redirected. Run it in a terminal.");
+				Console.Error.WriteLine("tpulse draws in a terminal, but its input or output is redirected. Run it in a terminal, or use tpulse -window.");
 				return 1;
 			}
 
@@ -270,16 +267,28 @@ internal static class Program
 
 	private static string Quote(string argument) => argument.Contains(' ', StringComparison.Ordinal) ? $"\"{argument}\"" : argument;
 
-#if WINDOWS
 	/// <summary>Starts this executable again as a window without a console, and returns at once.</summary>
 	private static int StartDetachedWindow(string[] args)
 	{
-		var start = new ProcessStartInfo(Environment.ProcessPath ?? "tpulse.exe")
+		var program = Environment.ProcessPath ?? "tpulse.exe";
+
+		// On Linux the window gets a session of its own (setsid), so closing the terminal does not close it, and no
+		// terminal input or output.
+		var detach = !OperatingSystem.IsWindows() && File.Exists("/usr/bin/setsid");
+		var start = new ProcessStartInfo(detach ? "/usr/bin/setsid" : program)
 		{
 			UseShellExecute = false,
 			CreateNoWindow = true,
 			WorkingDirectory = Environment.CurrentDirectory,
+			RedirectStandardInput = !OperatingSystem.IsWindows(),
+			RedirectStandardOutput = !OperatingSystem.IsWindows(),
+			RedirectStandardError = !OperatingSystem.IsWindows(),
 		};
+
+		if (detach)
+		{
+			start.ArgumentList.Add(program);
+		}
 
 		foreach (var argument in args)
 		{
@@ -293,5 +302,4 @@ internal static class Program
 		using var process = Process.Start(start);
 		return process is null ? 1 : 0;
 	}
-#endif
 }

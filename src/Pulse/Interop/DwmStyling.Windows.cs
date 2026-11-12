@@ -1,7 +1,6 @@
 using System.Runtime.InteropServices;
-using System.Windows;
-using System.Windows.Interop;
-using System.Windows.Media;
+
+using Avalonia.Media;
 
 using Pulse.Rendering;
 
@@ -19,9 +18,9 @@ internal static partial class DwmStyling
 	private const int CaptionColor = 35;
 	private const int TextColor = 36;
 
-	public static void Apply(Window window)
+	/// <summary>Styles the title bar of the window with the native handle <paramref name="handle"/>.</summary>
+	public static void Apply(nint handle)
 	{
-		var handle = new WindowInteropHelper(window).Handle;
 		if (handle == 0)
 		{
 			return;

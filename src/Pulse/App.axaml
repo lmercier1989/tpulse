@@ -1,0 +1,71 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Pulse.App"
+             RequestedThemeVariant="Dark">
+  <Application.Resources>
+    <!-- Segoe UI and Consolas on Windows; elsewhere the first font of the list that is installed, else Inter. -->
+    <FontFamily x:Key="UiFont">Segoe UI, Cantarell, Noto Sans, DejaVu Sans, fonts:Inter#Inter</FontFamily>
+    <FontFamily x:Key="MonoFont">Consolas, Cascadia Mono, DejaVu Sans Mono, Noto Sans Mono, Liberation Mono, monospace</FontFamily>
+
+    <SolidColorBrush x:Key="BackgroundBrush" Color="#090B0F" />
+    <SolidColorBrush x:Key="SurfaceBrush" Color="#11141A" />
+    <SolidColorBrush x:Key="SurfaceBorderBrush" Color="#232832" />
+    <SolidColorBrush x:Key="HighlightBrush" Color="#1C212A" />
+    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#E4E8EE" />
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="#8790A0" />
+    <SolidColorBrush x:Key="TextDimBrush" Color="#525B68" />
+  </Application.Resources>
+
+  <Application.Styles>
+    <FluentTheme />
+
+    <Style Selector="TextBlock.base, TextBlock.channelName, TextBlock.detail, TextBlock.stat, TextBlock.valueLabel, TextBlock.value, TextBlock.tick">
+      <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.channelName">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+    </Style>
+    <Style Selector="TextBlock.detail">
+      <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+    </Style>
+    <Style Selector="TextBlock.stat">
+      <Setter Property="Foreground" Value="{StaticResource TextDimBrush}" />
+    </Style>
+    <Style Selector="TextBlock.valueLabel">
+      <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+      <Setter Property="Margin" Value="0,0,5,0" />
+    </Style>
+    <Style Selector="TextBlock.value">
+      <Setter Property="FontSize" Value="14" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+    </Style>
+    <Style Selector="TextBlock.tick">
+      <Setter Property="FontSize" Value="10" />
+      <Setter Property="Foreground" Value="{StaticResource TextDimBrush}" />
+    </Style>
+
+    <!-- A compact dark menu in the instrument colours. -->
+    <Style Selector="ContextMenu, MenuFlyoutPresenter">
+      <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource SurfaceBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Padding" Value="4" />
+      <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+      <Setter Property="FontSize" Value="12" />
+    </Style>
+    <Style Selector="MenuItem">
+      <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Padding" Value="8,5" />
+      <Setter Property="MinHeight" Value="0" />
+    </Style>
+    <Style Selector="Separator">
+      <Setter Property="Background" Value="{StaticResource SurfaceBorderBrush}" />
+      <Setter Property="Margin" Value="8,4" />
+    </Style>
+  </Application.Styles>
+</Application>

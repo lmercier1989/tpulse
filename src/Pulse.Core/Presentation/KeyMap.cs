@@ -162,6 +162,7 @@ public static class KeyMap
 		new("tpulse -profile dev", "Start with the options saved as a profile"),
 		new("tpulse -save-profile dev -cpu -git", "Save options as a profile"),
 		new("tpulse -profiles", "List the profiles"),
+		new("tpulse -window", "A separate window instead of the terminal"),
 		new("tpulse -braille", "Braille characters instead of Sixel graphics"),
 		new("tpulse -help", "Every option, with examples"),
 	];

@@ -43,7 +43,7 @@ try {
         # Framework-dependent: the properties are passed directly, because some SDK versions drop the
         # --self-contained switch and then publish the whole runtime (120 MB instead of under 1 MB).
         dotnet publish src/Pulse/Pulse.csproj -c $Configuration -r $Runtime -p:SelfContained=false -p:PublishSelfContained=false `
-            -p:PublishSingleFile=true -p:DebugType=embedded -o $output --nologo
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=embedded -o $output --nologo
         if ($LASTEXITCODE) { throw 'Publish failed.' }
         Write-Host "Published $(Join-Path $output 'tpulse.exe')"
     }

@@ -75,7 +75,7 @@ public sealed class LaunchOptions
           -sixel            Draw with Sixel pixel graphics (default when the terminal supports it)
           -braille          Draw with braille characters (works in every terminal)
           -here             Draw in this tab; in Windows Terminal, tpulse otherwise opens its own Pulse tab
-          -window           Windows: open a separate window instead of drawing in the terminal
+          -window           Open a separate window instead of drawing in the terminal
           -top              Keep that window on top
           -help             Show this help
           -version          Show the version

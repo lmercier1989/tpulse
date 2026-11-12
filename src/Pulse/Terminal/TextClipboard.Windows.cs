@@ -8,7 +8,8 @@ internal static class TextClipboard
 	{
 		try
 		{
-			System.Windows.Clipboard.SetText(text);
+			// The terminal loop runs on the main thread, a single-threaded apartment ([STAThread] on Main).
+			System.Windows.Forms.Clipboard.SetText(text);
 			return true;
 		}
 		catch (Exception ex) when (ex is System.Runtime.InteropServices.ExternalException or ThreadStateException)

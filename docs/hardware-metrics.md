@@ -86,7 +86,7 @@ The Linux build reads the kernel's own files, without root and without extra pac
 | Battery | `/sys/class/power_supply` | System batteries only; a mouse or headset battery is not one. |
 | Notifications, clipboard | `notify-send`; `wl-copy`, `xclip` or `xsel`, else the terminal (OSC 52) | |
 
-Not on Linux: another machine (`-host`), performance counters (`-counter`) and the window (`-window`).
+Not on Linux: another machine (`-host`) and performance counters (`-counter`).
 
 ## Units
 

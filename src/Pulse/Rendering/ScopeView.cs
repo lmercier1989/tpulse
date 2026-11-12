@@ -1,5 +1,8 @@
-using System.Windows;
-using System.Windows.Media;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Media;
+using Avalonia.Rendering;
+using Avalonia.Media.Immutable;
 
 using Pulse.Core.Metrics;
 using Pulse.Core.Presentation;
@@ -8,12 +11,12 @@ using Pulse.Core.Processing;
 namespace Pulse.Rendering;
 
 /// <summary>
-/// The trace area of one graph, drawn with retained WPF visuals (DirectX, anti-aliased, sub-pixel).
+/// The trace area of one graph, drawn by Avalonia (Skia, anti-aliased, sub-pixel).
 /// <para>
 /// The waveform geometry is rebuilt only when a sample arrives, the layout changes or the scale eases to a
-/// new step. Between those moments a frame only moves a <see cref="TranslateTransform"/> by
-/// <c>elapsed seconds x pixels per second</c>, so the trace scrolls continuously at sub-pixel precision
-/// while the managed side does almost no work per frame.
+/// new step. Between those moments a frame only moves the waveform by <c>elapsed seconds x pixels per second</c>
+/// with a translation, so the trace scrolls continuously at sub-pixel precision while the managed side does almost
+/// no work per frame.
 /// </para>
 /// <para>
 /// The right edge shows the time "now minus the display delay". The delay is two sampling intervals, so
@@ -21,7 +24,7 @@ namespace Pulse.Rendering;
 /// samples on both sides of it); a beam dot marks where the trace meets the edge.
 /// </para>
 /// </summary>
-internal sealed class ScopeView : FrameworkElement
+internal sealed class ScopeView : Control, ICustomHitTest
 {
 	private const double TopInset = 3;
 	private const double BottomInset = 1.5;
@@ -30,22 +33,23 @@ internal sealed class ScopeView : FrameworkElement
 	private const int VerticalDivisions = 10;
 	private const int HorizontalDivisions = 4;
 
-	private readonly VisualCollection _children;
-	private readonly DrawingVisual _gridVisual = new();
-	private readonly ContainerVisual _plotVisual = new();
-	private readonly DrawingVisual _waveVisual = new();
-	private readonly DrawingVisual _primaryHead = new();
-	private readonly DrawingVisual _secondaryHead = new();
-	private readonly TranslateTransform _waveShift = new();
-	private readonly TranslateTransform _primaryHeadShift = new();
-	private readonly TranslateTransform _secondaryHeadShift = new();
+	private static readonly IPen DivisionPen = new ImmutablePen(new ImmutableSolidColorBrush(Palette.GridDivision), 1);
+	private static readonly IPen LinePen = new ImmutablePen(new ImmutableSolidColorBrush(Palette.GridLine), 1);
+	private static readonly IPen BaselinePen = new ImmutablePen(new ImmutableSolidColorBrush(Palette.Baseline), 1);
+
 	private readonly CurvePlanner _primaryCurve = new();
 	private readonly CurvePlanner _secondaryCurve = new();
 	private readonly List<CurvePlanner> _coreCurves = [];
+	private readonly Dictionary<EventKind, IPen> _markerPens = [];
+	private readonly List<(double X, EventKind Kind)> _markers = [];
 
 	private Channel? _channel;
 	private ScopeStyle? _style;
-	private Brush? _fill;
+	private IBrush? _fill;
+	private StreamGeometry? _primaryFill;
+	private StreamGeometry? _primaryLine;
+	private StreamGeometry? _secondaryLine;
+	private StreamGeometry? _coreLines;
 	private double _historySeconds = 60;
 	private double _delaySeconds = 2.15;
 	private double _gapSeconds = 6;
@@ -53,23 +57,18 @@ internal sealed class ScopeView : FrameworkElement
 	private bool _showMarkers = true;
 	private EventHistory? _events;
 	private int _builtEvents = -1;
-	private readonly Dictionary<EventKind, Pen> _markerPens = [];
 	private double _desiredPlotHeight = 96;
 	private double _builtAt;
 	private int _builtVersion = -1;
 	private bool _dirty = true;
 	private double _pixelsPerSecond;
+	private double _top;
+	private double _bottom;
+	private double _shift;
+	private Point? _primaryHead;
+	private Point? _secondaryHead;
 
-	public ScopeView()
-	{
-		_plotVisual.Children.Add(_waveVisual);
-		_waveVisual.Transform = _waveShift;
-		_primaryHead.Transform = _primaryHeadShift;
-		_secondaryHead.Transform = _secondaryHeadShift;
-		_primaryHead.Opacity = 0;
-		_secondaryHead.Opacity = 0;
-		_children = new VisualCollection(this) { _gridVisual, _plotVisual, _secondaryHead, _primaryHead };
-	}
+	public ScopeView() => ClipToBounds = false;
 
 	/// <summary>The plot height this graph asks for; star rows scale it when the window is resized.</summary>
 	public double DesiredPlotHeight
@@ -85,14 +84,10 @@ internal sealed class ScopeView : FrameworkElement
 		}
 	}
 
-	protected override int VisualChildrenCount => _children.Count;
-
 	public void Attach(Channel channel, ScopeStyle style)
 	{
 		_channel = channel;
 		_style = style;
-		DrawHead(_primaryHead, style.PrimaryBrush, style.PrimaryHalo);
-		DrawHead(_secondaryHead, style.SecondaryBrush, style.SecondaryHalo);
 		_dirty = true;
 	}
 
@@ -106,7 +101,7 @@ internal sealed class ScopeView : FrameworkElement
 		_dirty = true;
 	}
 
-	/// <summary>The events drawn as markers across the plot (git activity, Windows errors).</summary>
+	/// <summary>The events drawn as markers across the plot (git activity, system errors).</summary>
 	public void ShowEvents(EventHistory events)
 	{
 		_events = events;
@@ -121,8 +116,8 @@ internal sealed class ScopeView : FrameworkElement
 			return;
 		}
 
-		var width = ActualWidth;
-		var height = ActualHeight;
+		var width = Bounds.Width;
+		var height = Bounds.Height;
 		if (width < 4 || height < 8)
 		{
 			return;
@@ -134,16 +129,62 @@ internal sealed class ScopeView : FrameworkElement
 			Rebuild(now, width, height);
 		}
 
-		var shift = -(now - _builtAt) * _pixelsPerSecond;
-		_waveShift.X = shift;
-		PlaceHead(_primaryCurve, _primaryHead, _primaryHeadShift, shift, width);
-		if (_channel.Secondary is not null)
-		{
-			PlaceHead(_secondaryCurve, _secondaryHead, _secondaryHeadShift, shift, width);
-		}
+		_shift = -(now - _builtAt) * _pixelsPerSecond;
+		_primaryHead = HeadOf(_primaryCurve, _shift, width);
+		_secondaryHead = _channel.Secondary is null ? null : HeadOf(_secondaryCurve, _shift, width);
+		InvalidateVisual();
 	}
 
-	protected override Visual GetVisualChild(int index) => _children[index];
+	/// <summary>The whole plot takes the mouse, not only where a line is drawn: the tooltip follows it everywhere.</summary>
+	public bool HitTest(Point point) => new Rect(Bounds.Size).Contains(point);
+
+	public override void Render(DrawingContext context)
+	{
+		var size = Bounds.Size;
+		if (size.Width < 4 || size.Height < 8)
+		{
+			return;
+		}
+
+		DrawGrid(context, size);
+		if (_style is null)
+		{
+			return;
+		}
+
+		using (context.PushClip(new Rect(0, -2, size.Width, size.Height + 4)))
+		using (context.PushTransform(Matrix.CreateTranslation(_shift, 0)))
+		{
+			// Markers first, so the traces stay on top; events newer than the edge scroll in with the wave.
+			foreach (var (x, kind) in _markers)
+			{
+				context.DrawLine(MarkerPen(kind), new Point(x, _top), new Point(x, _bottom));
+			}
+
+			if (_coreLines is not null)
+			{
+				context.DrawGeometry(null, _style.CorePen, _coreLines);
+			}
+
+			if (_secondaryLine is not null)
+			{
+				context.DrawGeometry(null, _style.SecondaryPen, _secondaryLine);
+			}
+
+			if (_primaryFill is not null)
+			{
+				context.DrawGeometry(_fill, null, _primaryFill);
+			}
+
+			if (_primaryLine is not null)
+			{
+				context.DrawGeometry(null, _style.PrimaryPen, _primaryLine);
+			}
+		}
+
+		DrawHead(context, _secondaryHead, _style.SecondaryBrush, _style.SecondaryHalo);
+		DrawHead(context, _primaryHead, _style.PrimaryBrush, _style.PrimaryHalo);
+	}
 
 	protected override Size MeasureOverride(Size availableSize)
 		=> new(0, double.IsInfinity(availableSize.Height) ? _desiredPlotHeight : Math.Min(_desiredPlotHeight, availableSize.Height));
@@ -152,26 +193,20 @@ internal sealed class ScopeView : FrameworkElement
 	{
 		_fill = null;
 		_dirty = true;
-		_plotVisual.Clip = new RectangleGeometry(new Rect(0, -2, finalSize.Width, finalSize.Height + 4));
-		DrawGrid(finalSize);
 		return finalSize;
 	}
 
-	protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
+	private static void DrawHead(DrawingContext context, Point? head, IBrush core, IBrush halo)
 	{
-		base.OnDpiChanged(oldDpi, newDpi);
-		DrawGrid(RenderSize);
-		_dirty = true;
+		if (head is { } center)
+		{
+			context.DrawEllipse(halo, null, center, HaloRadius, HaloRadius);
+			context.DrawEllipse(core, null, center, HeadRadius, HeadRadius);
+		}
 	}
 
-	private static void DrawHead(DrawingVisual head, Brush core, Brush halo)
-	{
-		using var drawing = head.RenderOpen();
-		drawing.DrawEllipse(halo, null, default, HaloRadius, HaloRadius);
-		drawing.DrawEllipse(core, null, default, HeadRadius, HeadRadius);
-	}
-
-	private static void PlaceHead(CurvePlanner curve, DrawingVisual head, TranslateTransform transform, double shift, double width)
+	/// <summary>Where the trace meets the right edge, on screen; null when the trace does not reach it.</summary>
+	private static Point? HeadOf(CurvePlanner curve, double shift, double width)
 	{
 		// The edge in the coordinates the geometry was built in.
 		var edge = width - shift;
@@ -183,18 +218,7 @@ internal sealed class ScopeView : FrameworkElement
 		}
 
 		var screenX = x + shift;
-		visible &= screenX >= 0;
-		var opacity = visible ? 1.0 : 0.0;
-		if (head.Opacity != opacity)
-		{
-			head.Opacity = opacity;
-		}
-
-		if (visible)
-		{
-			transform.X = screenX;
-			transform.Y = y;
-		}
+		return visible && screenX >= 0 ? new Point(screenX, y) : null;
 	}
 
 	private static StreamGeometry Build(CurvePlanner curve, bool filled, double baseline)
@@ -202,63 +226,54 @@ internal sealed class ScopeView : FrameworkElement
 		var geometry = new StreamGeometry();
 		using (var context = geometry.Open())
 		{
-			var sink = new StreamGeometrySink(context);
+			var sink = new GeometrySink(context);
 			curve.Emit(ref sink, filled, baseline);
+			sink.Finish();
 		}
 
-		geometry.Freeze();
 		return geometry;
 	}
 
 	private static double SnapToPixelCenter(double value, double scale) => (Math.Floor(value * scale) + 0.5) / scale;
 
-	private static Pen Hairline(Color color, double scale)
-	{
-		var pen = new Pen(new SolidColorBrush(color), 1 / scale);
-		pen.Freeze();
-		return pen;
-	}
-
 	private void Rebuild(double now, double width, double height)
 	{
 		var channel = _channel!;
 		var style = _style!;
-		var top = TopInset;
-		var bottom = height - BottomInset;
+		_top = TopInset;
+		_bottom = height - BottomInset;
 		_pixelsPerSecond = width / _historySeconds;
-		var map = new PlotMapping(now - _delaySeconds, width, _pixelsPerSecond, top, bottom, (bottom - top) / channel.Scale.Current);
-		_fill ??= style.CreateFill(top, bottom);
+		var map = new PlotMapping(now - _delaySeconds, width, _pixelsPerSecond, _top, _bottom, (_bottom - _top) / channel.Scale.Current);
+		_fill ??= style.CreateFill(_top, _bottom);
 
-		using (var drawing = _waveVisual.RenderOpen())
+		_markers.Clear();
+		if (_showMarkers && _events is not null)
 		{
-			// Markers first, so the traces stay on top; events newer than the edge scroll in with the wave.
-			if (_showMarkers && _events is not null)
+			var title = ChannelText.TitleOf(channel);
+			foreach (var item in _events.Between(map.TimeAt(0) - 5, double.PositiveInfinity))
 			{
-				var title = ChannelText.TitleOf(channel);
-				foreach (var item in _events.Between(map.TimeAt(0) - 5, double.PositiveInfinity))
+				if (item.BelongsTo(title))
 				{
-					if (item.BelongsTo(title))
-					{
-						var x = map.X(item.Time);
-						drawing.DrawLine(MarkerPen(item.Kind), new Point(x, top), new Point(x, bottom));
-					}
+					_markers.Add((map.X(item.Time), item.Kind));
 				}
 			}
-
-			if (_showCores && channel.Cores.Length > 0)
-			{
-				drawing.DrawGeometry(null, style.CorePen, BuildCores(channel.Cores, map, bottom));
-			}
-
-			if (channel.Secondary is not null)
-			{
-				_secondaryCurve.Plan(channel.Secondary, map, _gapSeconds);
-				drawing.DrawGeometry(null, style.SecondaryPen, Build(_secondaryCurve, filled: false, bottom));
-			}
-
-			_primaryCurve.Plan(channel.Primary, map, _gapSeconds);
-			drawing.DrawGeometry(_fill, style.PrimaryPen, Build(_primaryCurve, filled: true, bottom));
 		}
+
+		_coreLines = _showCores && channel.Cores.Length > 0 ? BuildCores(channel.Cores, map, _bottom) : null;
+		if (channel.Secondary is not null)
+		{
+			_secondaryCurve.Plan(channel.Secondary, map, _gapSeconds);
+			_secondaryLine = Build(_secondaryCurve, filled: false, _bottom);
+		}
+		else
+		{
+			_secondaryLine = null;
+		}
+
+		// The fill and the line are separate geometries: the fill closes down to the baseline, which is never stroked.
+		_primaryCurve.Plan(channel.Primary, map, _gapSeconds);
+		_primaryFill = Build(_primaryCurve, filled: true, _bottom);
+		_primaryLine = Build(_primaryCurve, filled: false, _bottom);
 
 		_builtAt = now;
 		_builtVersion = channel.Version;
@@ -267,12 +282,11 @@ internal sealed class ScopeView : FrameworkElement
 	}
 
 	/// <summary>A dashed hairline in the colour of the event kind, like the markers in the terminal.</summary>
-	private Pen MarkerPen(EventKind kind)
+	private IPen MarkerPen(EventKind kind)
 	{
 		if (!_markerPens.TryGetValue(kind, out var pen))
 		{
-			pen = new Pen(new SolidColorBrush(Palette.WithAlpha(Palette.MarkerOf(kind), 0.6)), 1) { DashStyle = new DashStyle([4, 2], 0) };
-			pen.Freeze();
+			pen = new ImmutablePen(new ImmutableSolidColorBrush(Palette.WithAlpha(Palette.MarkerOf(kind), 0.6)), 1, new ImmutableDashStyle([4, 2], 0));
 			_markerPens[kind] = pen;
 		}
 
@@ -289,44 +303,40 @@ internal sealed class ScopeView : FrameworkElement
 		var geometry = new StreamGeometry();
 		using (var context = geometry.Open())
 		{
-			var sink = new StreamGeometrySink(context);
+			var sink = new GeometrySink(context);
 			for (var i = 0; i < cores.Length; i++)
 			{
 				_coreCurves[i].Plan(cores[i], map, _gapSeconds);
 				_coreCurves[i].Emit(ref sink, filled: false, baseline);
 			}
+
+			sink.Finish();
 		}
 
-		geometry.Freeze();
 		return geometry;
 	}
 
 	/// <summary>A fixed graticule of device-pixel hairlines: four vertical divisions and ten across.</summary>
-	private void DrawGrid(Size size)
+	private void DrawGrid(DrawingContext context, Size size)
 	{
-		using var drawing = _gridVisual.RenderOpen();
-		if (size.Width < 4 || size.Height < 8)
-		{
-			return;
-		}
-
-		var dpi = VisualTreeHelper.GetDpi(this);
+		var scale = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1;
 		var top = TopInset;
 		var bottom = size.Height - BottomInset;
-		var division = Hairline(Palette.GridDivision, dpi.DpiScaleX);
-		var line = Hairline(Palette.GridLine, dpi.DpiScaleY);
-		var baseline = Hairline(Palette.Baseline, dpi.DpiScaleY);
+		var hairline = 1 / scale;
+		var division = hairline == 1 ? DivisionPen : new ImmutablePen(DivisionPen.Brush as IImmutableBrush, hairline);
+		var line = hairline == 1 ? LinePen : new ImmutablePen(LinePen.Brush as IImmutableBrush, hairline);
+		var baseline = hairline == 1 ? BaselinePen : new ImmutablePen(BaselinePen.Brush as IImmutableBrush, hairline);
 
 		for (var i = 1; i < VerticalDivisions; i++)
 		{
-			var x = SnapToPixelCenter(size.Width * i / VerticalDivisions, dpi.DpiScaleX);
-			drawing.DrawLine(division, new Point(x, top), new Point(x, bottom));
+			var x = SnapToPixelCenter(size.Width * i / VerticalDivisions, scale);
+			context.DrawLine(division, new Point(x, top), new Point(x, bottom));
 		}
 
 		for (var i = 0; i <= HorizontalDivisions; i++)
 		{
-			var y = SnapToPixelCenter(top + ((bottom - top) * i / HorizontalDivisions), dpi.DpiScaleY);
-			drawing.DrawLine(i == HorizontalDivisions ? baseline : line, new Point(0, y), new Point(size.Width, y));
+			var y = SnapToPixelCenter(top + ((bottom - top) * i / HorizontalDivisions), scale);
+			context.DrawLine(i == HorizontalDivisions ? baseline : line, new Point(0, y), new Point(size.Width, y));
 		}
 	}
 }
