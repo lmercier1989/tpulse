@@ -5,8 +5,8 @@
 <h1 align="center">Pulse</h1>
 
 <p align="center">
-  A system monitor for Windows Terminal (and Linux terminals) that looks like an oscilloscope.<br>
-  CPU, GPU, memory, disk and network as smooth, scrolling traces, right in your terminal tab.
+  A system monitor that looks like an oscilloscope, for Windows and Linux.<br>
+  CPU, GPU, memory, disk and network as smooth, scrolling traces, right in your terminal tab or in a window of its own.
 </p>
 
 <p align="center">
@@ -18,17 +18,22 @@
 - **Real graphics in the terminal.** Anti-aliased curves with a soft gradient underneath, drawn as Sixel pixels.
   No blocky character graphs.
 - **Everything at a glance.** Live graphs for the hardware, plus a side panel with disk space, IP addresses and system info.
-- **Your process, any counter, any server.** Follow one process or any Windows performance counter as a graph of its
-  own, or watch another Windows machine over the network.
+- **Windows and Linux.** Windows Terminal or any Linux terminal (Konsole, foot, WezTerm, ...), and the same instrument
+  as a window of its own on both (`tpulse -window`).
+- **Your process, any counter, any server.** Follow one process as a graph of its own; on Windows also any performance
+  counter, or another Windows machine over the network.
 - **See what Claude does to your machine.** Tokens per minute of your Claude Code sessions on the same time axis as
   CPU and memory, with Claude's own share drawn in, so a build an agent starts is visible the moment it happens.
-- **See what happened when.** Commits, checkouts and Windows errors are marked across every graph. Point at a spike
-  to see which processes caused it, scroll back with the arrow keys, or record a run and play it back later.
+- **See what happened when.** Commits, checkouts and system errors (the Windows logs, the systemd journal) are marked
+  across every graph. Point at a spike to see which processes caused it, scroll back with the arrow keys, or record a
+  run and play it back later.
 - **Measure a command.** `tpulse -- dotnet build` runs the build in your shell, marks its start and end on the
   graphs and tells you afterwards what it cost: CPU, memory, disk, network and the busiest processes.
 - **Light and private.** About 5 % of one CPU core. No admin rights, no drivers, no internet requests.
 
 ## Install
+
+### Windows
 
 You need Windows 10 or 11, [Windows Terminal](https://aka.ms/terminal) 1.22 or later and the
 [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0). Clone this repository, then run from its folder:
@@ -45,19 +50,23 @@ Start menu shortcut, and `./install.ps1 -Uninstall` removes them again. If Power
 
 ### Linux
 
-The terminal monitor runs on Linux too (x86_64 and aarch64), in any terminal; with Sixel support (foot, WezTerm,
-Konsole, xterm -ti vt340, recent tmux) the graphs are pixels, elsewhere braille. You need the
-[.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0). Clone this repository, then run from its folder:
+You need a 64-bit Linux (x86_64 or aarch64) and the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
+Clone this repository, then run from its folder:
 
 ```bash
 ./install.sh
 ```
 
-It puts the program in `~/.local/share/pulse` and the `tpulse` command in `~/.local/bin`, and
-`./install.sh --uninstall` removes them again. Everything below works the same, the window (`-window`) included, except
-what needs Windows: other machines (`-host`), performance counters (`-counter`) and the Windows Terminal tab. Errors come
-from the systemd journal instead of the Windows logs, and notifications go through `notify-send`.
-[What is measured where](docs/hardware-metrics.md#linux) lists the sources.
+Then type `tpulse` in any terminal. In a terminal with Sixel graphics (Konsole, foot, WezTerm, xterm with
+`-ti vt340`, recent tmux) the graphs are pixels, elsewhere braille characters. `tpulse -window` opens the window
+(X11, or XWayland on Wayland).
+
+The installer works for your user only: the program goes to `~/.local/share/pulse` and the `tpulse` command to
+`~/.local/bin`, and `./install.sh --uninstall` removes them again.
+
+Everything below works the same on Linux, except what is built on Windows itself: other machines (`-host`),
+performance counters (`-counter`) and the Windows Terminal tab. Errors come from the systemd journal, notifications
+go through `notify-send`, and [what is measured where](docs/hardware-metrics.md#linux) lists the Linux sources.
 
 ## Use
 
@@ -67,7 +76,8 @@ tpulse -cpu -memory          # just CPU and memory
 tpulse -all -history 5m      # everything, five minutes of history
 tpulse -claude -cpu -memory  # Claude next to the load it causes
 tpulse -cpu -process devenv  # CPU, and Visual Studio on its own
-tpulse -host sql01 -all      # another machine
+tpulse -window               # a window of its own instead of the terminal
+tpulse -host sql01 -all      # another machine (Windows)
 tpulse -cpu -git             # CPU next to git activity on this machine
 tpulse -git D:\Repos         # only the repositories in that folder
 tpulse -profile dev          # a saved set of options
@@ -75,8 +85,8 @@ tpulse -all -record          # and write every sample to a CSV file
 tpulse -replay run.csv       # play a recording back
 ```
 
-Typed in PowerShell or cmd, Pulse opens in a tab of its own, so your shell stays free. Add `-here` to keep it in
-the current tab, and see `tpulse -help` for every option.
+In Windows Terminal, typed in PowerShell or cmd, Pulse opens in a tab of its own, so your shell stays free; add `-here`
+to keep it in the current tab. Elsewhere it draws where you type it. `tpulse -help` lists every option.
 
 The keys, the mouse and the markers, grouped as `?` shows them in the terminal and `F1` in the window. A row
 marked *terminal* or *window* works there only.
@@ -125,7 +135,7 @@ marked *terminal* or *window* works there only.
 | mark (sky blue, like a selection) | `tpulse -mark`, or the start and end of `tpulse -- command` |
 | spike (orange) | Far above its usual level, with the process that caused it; on that graph only |
 | leak (pink) | Memory that kept growing for ten minutes; on the memory graph only |
-| error (red) | An error or critical event in the Windows logs |
+| error (red) | An error or critical event in the Windows logs or the systemd journal |
 
 | Screen | |
 |---|---|
@@ -136,7 +146,7 @@ marked *terminal* or *window* works there only.
 | `C` | Compact layout |
 | `T` | Always on top (*window*) |
 | `F` | Frame rate: 30 or 60 fps |
-| `N` | Windows notifications |
+| `N` | Desktop notifications |
 | `?` | This overview; `?` again: every command a shell can run (*terminal*; `F1` in the window) |
 | `Q` | Quit (`Ctrl+Q` closes the window) |
 
@@ -146,17 +156,17 @@ What you change with the keys is remembered for next time.
 
 | Graph | Shows |
 |---|---|
-| **CPU** | Utilization, Claude's share of it, optionally a line per core, and the temperature Windows exposes |
-| **GPU** | Utilization and video memory, temperature, power draw (NVIDIA) |
+| **CPU** | Utilization, Claude's share of it, optionally a line per core, and the temperature the system exposes |
+| **GPU** | Utilization and video memory, temperature, power draw (NVIDIA; on Linux also AMD) |
 | **Memory** | Memory in use, and how much of it is Claude |
 | **Disk** | Read and write speed; the scale follows the traffic |
-| **Network** | Download and upload on the physical adapter |
+| **Network** | Download and upload on the physical adapters |
 | **Claude** | Output and input tokens per minute of all your Claude Code sessions |
 | **Git** | Lines changed and not committed yet, over the git repositories on this machine |
 | **Process** | CPU and memory of a process you name, with its threads and handles |
-| **Counter** | Any performance counter you name |
+| **Counter** | Any performance counter you name (Windows) |
 
-The **info panel** shows the host, Windows version, uptime and processes; what Claude uses right now (the app, its
+The **info panel** shows the host, the Windows version or Linux distribution, uptime and processes; what Claude uses right now (the app, its
 open sessions and the tools they started) and each active session with its project and context size; your git
 repositories; the busiest processes by CPU and by I/O; the latest events; the IP address, gateway, ping, DNS and
 link speed; and a gauge per disk that turns red at 90 % full. Values you compare (loads, sizes, times) line up on
@@ -173,7 +183,8 @@ out, the least important lines make way first. A value that stays at 90 % or mor
 **Git** is a graph like the others (key `7`), and you do not have to say where your repositories are. Pulse finds
 them itself: two folders deep on every drive (such as `D:\Repos\App`), three deep in your user folder (such as
 `source\repos\App`), and in whatever folder a shell, an editor, a build or an agent is working in, worktrees
-included. `-git D:\Repos` follows only the repositories in that folder.
+included. On Linux it looks three deep in your home folder and two deep on volumes under `/mnt`, `/media`,
+`/run/media`, `/srv` and `/data`. `-git D:\Repos` (or `-git ~/src`) follows only the repositories in that folder.
 
 The graph shows the lines changed and not committed yet. The panel lists the repositories that matter right now
 (active, with changes, or in the middle of a merge or rebase), each with its branch, its changes, how far it is
@@ -183,7 +194,8 @@ repositories, and asks git only about the active ones (every 5 s) and the ones w
 a time and without taking the index lock.
 
 Every commit, checkout, merge, rebase, reset and pull, by you, your IDE or an agent, becomes a dashed **marker**
-across all graphs, next to the errors Windows writes to its System and Application logs (in red). So you can see
+across all graphs, next to the errors the system logs (in red): the System and Application logs on Windows, the
+systemd journal on Linux. So you can see
 whether that CPU spike came with a commit, a build or a crashing service. Press `M` to hide the markers.
 
 <p align="center">
@@ -197,7 +209,7 @@ of that moment.
 
 **Drill down.** Point at a graph and a cursor line shows the values of the moment under the mouse in every header,
 while a flyout next to the mouse shows what was busiest then (the top six by CPU, the top three by disk I/O), the git
-and Windows events around it, and which processes carried the CPU over the whole visible window. The side panel keeps
+and system events around it, and which processes carried the CPU over the whole visible window. The side panel keeps
 the live picture; `D` puts the moment in the side panel instead. Hold the mouse button to freeze that moment while you
 read it, or click to keep it until the next click or `Esc`. In the window (`-window`) a tooltip shows the same, and
 holding the button freezes it.
@@ -219,9 +231,9 @@ each get a band of their own colour, and everything else fills up to the total. 
 that graph and names the cause: "CPU 92% (usually 18%) · dotnet ×7 +61%". A process whose memory keeps climbing for
 ten minutes gets a pink marker on the memory graph and a row under *Growing memory* in the panel.
 
-**Notifications.** `N` (or `-notify`) turns on Windows notifications for a load that stays at 90 % or more, a disk
-that fills past 90 %, a git that is blocked, a critical Windows event, memory that keeps growing and a command
-measured with `tpulse --` that finishes, also while Pulse is out of sight.
+**Notifications.** `N` (or `-notify`) turns on desktop notifications (Windows notifications, `notify-send` on Linux)
+for a load that stays at 90 % or more, a disk that fills past 90 %, a git that is blocked, a critical system event,
+memory that keeps growing and a command measured with `tpulse --` that finishes, also while Pulse is out of sight.
 
 **Right-click.** The right button opens a menu for whatever is under the mouse, so you do not have to remember a key:
 
@@ -231,8 +243,8 @@ measured with `tpulse --` that finishes, also while Pulse is out of sight.
 - **A graph or its title:** hide it, make it tall or fold it, move it up or down, show only that graph and back.
 - **A process in the side panel or the flyout:** follow it as a graph of its own, from that moment on (up to three
   extra graphs, on this machine), or copy its name.
-- **A repository:** open its folder, open a terminal tab there, copy the path. **An event:** go to its moment. **A
-  disk:** open it in Explorer.
+- **A repository:** open its folder, open a terminal there, copy the path. **An event:** go to its moment. **A
+  disk:** open it in Explorer or your file manager.
 - **A section of the side panel:** move it up or down, or hide it.
 
 Dragging with the right button pans through time. The window has the same menu for a graph and its moment.
@@ -265,7 +277,8 @@ your own on every running Pulse, with the folder you are in as its source.
 
 ## A process, a counter, another machine
 
-Add up to three graphs of your own. They take the keys `8`, `9` and `0` and last for that launch.
+Add up to three graphs of your own. They take the keys `8`, `9` and `0` and last for that launch. Counters and other
+machines are Windows features; a process works everywhere (`tpulse -process firefox` on Linux).
 
 ```powershell
 tpulse -cpu -process msedge -process dotnet          # every process of that name, added up
@@ -274,7 +287,7 @@ tpulse -cpu -counter "\System\Context Switches/sec"
 ```
 
 A **process** graph shows CPU and memory as a share of the machine, like the grouped rows in Task Manager. Give the
-name, with or without `.exe`, or a process id. A **counter** graph takes any performance counter by its English path,
+name (on Windows with or without `.exe`), or a process id. A **counter** graph takes any performance counter by its English path,
 as `typeperf -q` lists it. With `*` as the instance, all instances are added up.
 
 <p align="center">
@@ -298,7 +311,7 @@ servers), so the CPU and memory graphs show how much of the load is Claude.
 To dig into the relation between tokens, sessions and load, record a run:
 
 ```powershell
-tpulse -all -record              # Documents\Pulse\pulse-<time>.csv
+tpulse -all -record              # Documents\Pulse\pulse-<time>.csv (~/Documents/Pulse on Linux)
 tpulse -all -record run.csv      # or a file of your own
 ```
 
@@ -324,28 +337,33 @@ Pulse starts with five samples:
 | `sql` | `-cpu -memory -disk -process sqlservr` |
 
 `tpulse -save-profile mine -cpu -git D:\Repos` saves your own, `tpulse -profiles` lists them. They live in
-`%LOCALAPPDATA%\Pulse\profiles.json`, which you can edit by hand.
+`%LOCALAPPDATA%\Pulse\profiles.json` (`~/.local/share/Pulse/profiles.json` on Linux), which you can edit by hand.
 
 ## Good to know
 
 - **Other terminals.** Without Sixel support Pulse draws with braille characters. Prefer a separate window? Use `tpulse -window`.
-- **Sensors.** The CPU temperature is the ACPI zone Windows provides (often a board sensor), and GPU power is
-  NVIDIA only. See [what is measured where](docs/hardware-metrics.md).
+- **Sensors.** On Windows the CPU temperature is the ACPI zone Windows provides (often a board sensor) and GPU power is
+  NVIDIA only; on Linux the CPU temperature is the die sensor (k10temp, coretemp) and AMD GPUs report their power too.
+  See [what is measured where](docs/hardware-metrics.md).
 - **Settings and logs** live in `%LOCALAPPDATA%\Pulse` (on Linux `~/.local/share/Pulse`).
 - **Not in the + menu yet?** Close all Windows Terminal windows once; it reads new profiles on start.
 
 ## For developers
 
 ```powershell
-./build.ps1             # build and run the unit tests
+./build.ps1             # Windows: build and run the unit tests
 ./run.ps1 -cpu          # build and run from source
 ./build.ps1 -Publish    # single-file tpulse.exe in artifacts\
 ```
 
-On Linux, `dotnet build Pulse.slnx` and `dotnet test --solution Pulse.slnx` build and test the Linux variant
-(`net10.0`); `-p:PulseWindows=true` cross-compiles the Windows one. The window (`-window`) is Avalonia on both. Platform code lives in
-`*.Windows.cs` and `*.Linux.cs` files, which each build leaves out for the other platform.
+```bash
+dotnet build Pulse.slnx                     # Linux: the Linux variant (net10.0)
+dotnet test --solution Pulse.slnx           # and its unit tests
+dotnet build Pulse.slnx -p:PulseWindows=true  # cross-compile the Windows variant
+```
 
-C# on .NET 10. Metrics come from PDH, DXGI, D3DKMT, NVML and IP Helper on Windows, from `/proc`, `/sys` and NVML on
-Linux; the graphs are rasterized in software and
-sent to the terminal as Sixel. [How it works](docs/how-it-works.md) explains the architecture and the rendering.
+C# on .NET 10. Metrics come from PDH, DXGI, D3DKMT, NVML and IP Helper on Windows, and from `/proc`, `/sys` and NVML on
+Linux. In the terminal the graphs are rasterized in software and sent as Sixel (or braille); the window is
+[Avalonia](https://avaloniaui.net) on both systems. Platform code lives in `*.Windows.cs` and `*.Linux.cs` files,
+which each build leaves out for the other platform. [How it works](docs/how-it-works.md) explains the architecture and
+the rendering.
