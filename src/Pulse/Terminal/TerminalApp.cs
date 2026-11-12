@@ -122,6 +122,14 @@ internal sealed partial class TerminalApp
 	private (int Row, int Column, int Rows, int Width)? _flyout;
 	private string _flyoutKey = string.Empty;
 	private readonly List<(int Row, int Column, int Rows, int Width)> _erase = [];
+
+	/// <summary>The part of each graph's plot (by graph index) that was left out for a flyout or menu, in cells; null for none.</summary>
+	private readonly Dictionary<int, (int Row, int Column, int Rows, int Width)?> _lastCut = [];
+
+	/// <summary>The flyout of this frame, placed before the graphs are drawn so they can leave its cells out.</summary>
+	private ((int Row, int Column, int Rows, int Width) Area, IReadOnlyList<PanelLine> Lines, string Key)? _flyoutPlan;
+
+	private byte[] _cropPixels = [];
 	private List<MenuItem>? _menu;
 	private int _menuSelected;
 	private (int Row, int Column, int Rows, int Width)? _menuArea;
@@ -738,6 +746,7 @@ internal sealed partial class TerminalApp
 			_focusSample = focus;
 			_panelDirty |= _settings.FocusInPanel;
 		}
+		PlaceFlyout(layout);
 		_frame.Clear();
 		_frame.Ascii("\u001b[?2026h");
 		var changed = _erase.Count > 0;
@@ -745,7 +754,9 @@ internal sealed partial class TerminalApp
 		{
 			for (var row = area.Row; row < area.Row + area.Rows; row++)
 			{
-				_frame.MoveTo(row, area.Column).Background(ScopeColors.Background).Ascii("\u001b[").Number(area.Width).Byte('X');
+				// Blanked, not erased: erasing would delete the whole graph image underneath in Konsole; the graphs under
+				// the area are sent again in this frame and cover these cells.
+				_frame.MoveTo(row, area.Column).Background(ScopeColors.Background).Blank(area.Width);
 			}
 
 			if (layout.PanelWidth > 0 && area.Column + area.Width > layout.PanelLeft)
@@ -788,7 +799,7 @@ internal sealed partial class TerminalApp
 		}
 
 		_headersDirty = false;
-		changed |= DrawFlyout(layout, changed);
+		changed |= DrawFlyout(changed);
 		changed |= DrawMenu(layout, changed);
 		changed |= AppendFooter();
 		_frame.Ascii("\u001b[?2026l");
@@ -905,13 +916,16 @@ internal sealed partial class TerminalApp
 		raster.DrawLine(_primaryYs.AsSpan(0, columns), thickness, ScopePalette.Stroke(kind, 1), ScopePalette.StrokeLevels);
 		DrawHead(raster, right, dotRadius, ScopePalette.Stroke(kind, 1));
 
-		// A trace that did not move by a whole pixel (a flat line, a long history) needs no new image.
+		// A trace that did not move by a whole pixel (a flat line, a long history) needs no new image, unless a flyout or
+		// menu came, went or moved over it.
 		var pixels = raster.Pixels;
-		if (pixels.SequenceEqual(_lastPixels[index].AsSpan(0, _lastPixelCount[index])))
+		var cut = CutFor(slot, layout);
+		if (pixels.SequenceEqual(_lastPixels[index].AsSpan(0, _lastPixelCount[index])) && _lastCut.GetValueOrDefault(index) == cut)
 		{
 			return;
 		}
 
+		_lastCut[index] = cut;
 		if (_lastPixels[index].Length < pixels.Length)
 		{
 			_lastPixels[index] = new byte[pixels.Length];
@@ -920,16 +934,69 @@ internal sealed partial class TerminalApp
 		pixels.CopyTo(_lastPixels[index]);
 		_lastPixelCount[index] = pixels.Length;
 
-		// The image is transparent where it is background, so first erase its cells to the panel colour; erasing
-		// also removes the previous image there. Both happen inside one synchronized update, so nothing flickers.
-		_part.Background(ScopeColors.Background);
-		for (var row = 0; row < slot.PlotRows; row++)
+		// The image is opaque, background included, so it covers the previous one completely and nothing is erased
+		// first. Some terminals (Konsole) draw images outside synchronized updates and would show an erase as a grey
+		// flash between the two images.
+		if (cut is not { } hole)
 		{
-			_part.MoveTo(slot.PlotRow + row, layout.Left).Ascii("\u001b[").Number(layout.Width).Byte('X');
+			_part.MoveTo(slot.PlotRow, layout.Left);
+			_encoder.Encode(pixels, width, height, ScopePalette.Instance, _part, opaque: true);
+			return;
 		}
 
-		_part.MoveTo(slot.PlotRow, layout.Left);
-		_encoder.Encode(pixels, width, height, ScopePalette.Instance, _part);
+		// Around a flyout or menu: above it, left and right of it, and below it, so no text of the box falls into the first
+		// row of an image (Konsole deletes the image then) and no image covers the box.
+		var plotBottom = slot.PlotRow + slot.PlotRows;
+		var plotRight = layout.Left + layout.Width;
+		WriteCrop(pixels, width, height, slot.PlotRow, layout.Left, slot.PlotRow, layout.Left, hole.Row, plotRight);
+		WriteCrop(pixels, width, height, slot.PlotRow, layout.Left, hole.Row, layout.Left, plotBottom, hole.Column);
+		WriteCrop(pixels, width, height, slot.PlotRow, layout.Left, hole.Row, hole.Column + hole.Width, plotBottom, plotRight);
+		WriteCrop(pixels, width, height, slot.PlotRow, layout.Left, hole.Row + hole.Rows, hole.Column, plotBottom, hole.Column + hole.Width);
+	}
+
+	/// <summary>
+	/// Sends the cells from (<paramref name="fromRow"/>, <paramref name="fromColumn"/>) up to (<paramref name="toRow"/>,
+	/// <paramref name="toColumn"/>) of a plot image whose top left cell is (<paramref name="plotRow"/>, <paramref name="plotColumn"/>)
+	/// as an image of their own; nothing when that is empty.
+	/// </summary>
+	private void WriteCrop(ReadOnlySpan<byte> pixels, int width, int height, int plotRow, int plotColumn, int fromRow, int fromColumn, int toRow, int toColumn)
+	{
+		var x = (fromColumn - plotColumn) * _cellWidth;
+		var y = (fromRow - plotRow) * _cellHeight;
+		var cropWidth = (toColumn - fromColumn) * _cellWidth;
+		var cropHeight = Math.Min(height, (toRow - plotRow) * _cellHeight) - y;
+		if (cropWidth <= 0 || cropHeight <= 0)
+		{
+			return;
+		}
+
+		if (_cropPixels.Length < cropWidth * cropHeight)
+		{
+			_cropPixels = new byte[cropWidth * cropHeight];
+		}
+
+		for (var line = 0; line < cropHeight; line++)
+		{
+			pixels.Slice(((y + line) * width) + x, cropWidth).CopyTo(_cropPixels.AsSpan(line * cropWidth));
+		}
+
+		_part.MoveTo(fromRow, fromColumn);
+		_encoder.Encode(_cropPixels.AsSpan(0, cropWidth * cropHeight), cropWidth, cropHeight, ScopePalette.Instance, _part, opaque: true);
+	}
+
+	/// <summary>The cells of the plot of <paramref name="slot"/> under the open menu or the flyout, or null when none is over it.</summary>
+	private (int Row, int Column, int Rows, int Width)? CutFor(GraphSlot slot, TerminalLayout layout)
+	{
+		if ((_menu is not null ? _menuArea : _flyoutPlan?.Area) is not { } box)
+		{
+			return null;
+		}
+
+		var top = Math.Max(box.Row, slot.PlotRow);
+		var bottom = Math.Min(box.Row + box.Rows, slot.PlotRow + slot.PlotRows);
+		var left = Math.Max(box.Column, layout.Left);
+		var right = Math.Min(box.Column + box.Width, layout.Left + layout.Width);
+		return top < bottom && left < right ? (top, left, bottom - top, right - left) : null;
 	}
 
 	/// <summary>
@@ -1097,8 +1164,13 @@ internal sealed partial class TerminalApp
 	/// picture; T shows the moment in the side panel instead. It is written after the plots, and again whenever a plot
 	/// under it was sent; where it was before, the graphs are sent again.
 	/// </summary>
-	private bool DrawFlyout(TerminalLayout layout, bool redrawn)
+	/// <summary>
+	/// Decides where the flyout of this frame goes and what it says, before the graphs are drawn: a Sixel graph under it
+	/// is sent around it, because Konsole deletes an image when text is written into its first row.
+	/// </summary>
+	private void PlaceFlyout(TerminalLayout layout)
 	{
+		_flyoutPlan = null;
 		var lines = !_settings.FocusInPanel && _menu is null && _focusSample is { } sample ? InfoPanel.BuildFocus(sample, FocusOn(sample)) : null;
 		var width = Math.Min(FlyoutWidth, layout.Width - 4);
 		var top = layout.Slots.Count > 0 ? layout.Slots[0].HeaderRow : 0;
@@ -1106,7 +1178,7 @@ internal sealed partial class TerminalApp
 		if (lines is null || lines.Count == 0 || width < 24 || rows < 4)
 		{
 			ClearFlyout();
-			return false;
+			return;
 		}
 
 		var fitted = InfoPanel.Fit(lines, rows - 2);
@@ -1115,12 +1187,23 @@ internal sealed partial class TerminalApp
 		column = Math.Clamp(column, layout.Left, layout.Left + layout.Width - width);
 		var row = Math.Clamp(anchor.Row + 1, top, layout.FooterRow - rows);
 		var area = (row, column, rows, width);
-		var key = string.Join('\n', fitted);
 		if (_flyout is { } previous && previous != area)
 		{
 			InvalidateUnder(previous);
 		}
 
+		_flyoutPlan = (area, fitted, string.Join('\n', fitted));
+	}
+
+	/// <summary>Writes the flyout placed by <see cref="PlaceFlyout"/> when it is new, moved, changed, or something was drawn under it.</summary>
+	private bool DrawFlyout(bool redrawn)
+	{
+		if (_flyoutPlan is not { } plan)
+		{
+			return false;
+		}
+
+		var (area, fitted, key) = plan;
 		if (!redrawn && _flyout == area && key == _flyoutKey)
 		{
 			return false;
@@ -1128,13 +1211,14 @@ internal sealed partial class TerminalApp
 
 		_flyout = area;
 		_flyoutKey = key;
+		var (row, column, rows, width) = area;
 		var labelWidths = InfoPanel.LabelWidths(fitted, width - 2);
 		for (var i = 0; i < rows; i++)
 		{
-			_frame.MoveTo(row + i, column).Background(FlyoutBackground).Ascii("\u001b[").Number(width).Byte('X');
+			_frame.MoveTo(row + i, column).Background(FlyoutBackground).Blank(width);
 			if (i >= 1 && i - 1 < fitted.Count)
 			{
-				PanelView.WriteLine(_frame, row + i, column + 1, width - 2, fitted[i - 1], labelWidths[i - 1], FlyoutBackground);
+				PanelView.WriteLine(_frame, row + i, column + 1, width - 2, fitted[i - 1], labelWidths[i - 1], FlyoutBackground, erase: false);
 			}
 		}
 

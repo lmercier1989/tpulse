@@ -23,11 +23,18 @@ public static class PanelView
 
 	/// <summary>
 	/// Writes <paramref name="line"/> at <paramref name="row"/>, with values after a label column of <paramref name="labelWidth"/>,
-	/// on <paramref name="background"/> (the panel colour when null).
+	/// on <paramref name="background"/> (the panel colour when null). The row is erased first unless <paramref name="erase"/> is
+	/// false: a line over the graphs (the flyout) is blanked by its caller instead, because erasing a cell of a Sixel
+	/// image deletes the whole image in Konsole.
 	/// </summary>
-	public static void WriteLine(AnsiWriter output, int row, int left, int width, PanelLine line, int labelWidth = InfoPanel.LabelWidth, Rgb? background = null)
+	public static void WriteLine(AnsiWriter output, int row, int left, int width, PanelLine line, int labelWidth = InfoPanel.LabelWidth, Rgb? background = null, bool erase = true)
 	{
-		output.MoveTo(row, left).Background(background ?? ScopeColors.Background).Ascii("\u001b[").Number(width).Byte('X');
+		output.MoveTo(row, left).Background(background ?? ScopeColors.Background);
+		if (erase)
+		{
+			output.Ascii("\u001b[").Number(width).Byte('X');
+		}
+
 		if (width <= 0)
 		{
 			return;

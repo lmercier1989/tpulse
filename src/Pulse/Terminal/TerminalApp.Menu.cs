@@ -99,7 +99,8 @@ internal sealed partial class TerminalApp
 		for (var i = 0; i < area.Rows; i++)
 		{
 			var row = area.Row + i;
-			_frame.MoveTo(row, area.Column).Background(FlyoutBackground).Ascii("\u001b[").Number(area.Width).Byte('X');
+			// Blanked, not erased, so the graph images under the menu stay (Konsole deletes an image a cell of which is erased).
+			_frame.MoveTo(row, area.Column).Background(FlyoutBackground).Blank(area.Width);
 			var index = i - 1;
 			if (index < 0 || index >= _menu.Count)
 			{
@@ -114,7 +115,7 @@ internal sealed partial class TerminalApp
 			}
 
 			var selected = index == _menuSelected;
-			_frame.MoveTo(row, area.Column + 1).Background(selected ? MenuSelection : FlyoutBackground).Ascii("\u001b[").Number(area.Width - 2).Byte('X')
+			_frame.MoveTo(row, area.Column + 1).Background(selected ? MenuSelection : FlyoutBackground).Blank(area.Width - 2).MoveTo(row, area.Column + 1)
 				.Foreground(selected ? ScopeColors.TextPrimary : ScopeColors.TextSecondary)
 				.Text(" " + HeaderLine.Fit(item.Text, area.Width - 6 - item.Key.Length));
 			if (item.Key.Length > 0)
