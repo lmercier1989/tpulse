@@ -81,7 +81,9 @@ marked *terminal* or *window* works there only.
 | Drag | Select a range of time (*terminal*) |
 | Wheel | Scroll through time |
 | Click a title | Fold or unfold that graph |
-| Double-click, right-click | Make that graph tall, open the menu (*window*) |
+| Right-click | A menu for what is under the mouse: the moment, the selection, the graph, a row of the side panel |
+| Right-drag | Pan through time (*terminal*) |
+| Double-click | Make that graph tall (*window*) |
 
 | Selection (*terminal*) | |
 |---|---|
@@ -112,7 +114,9 @@ marked *terminal* or *window* works there only.
 | Screen | |
 |---|---|
 | `I` | Side panel on or off (*terminal*) |
+| `L` | Layout: the order of the graphs and of the sections of the side panel, and which are shown (*terminal*) |
 | `D` | Details of a moment: next to the mouse or in the side panel (*terminal*) |
+| Menu key | The right-click menu at the mouse, also `Shift` + `F10` (*terminal*) |
 | `C` | Compact layout |
 | `T` | Always on top (*window*) |
 | `F` | Frame rate: 30 or 60 fps |
@@ -202,6 +206,26 @@ ten minutes gets a pink marker on the memory graph and a row under *Growing memo
 **Notifications.** `N` (or `-notify`) turns on Windows notifications for a load that stays at 90 % or more, a disk
 that fills past 90 %, a git that is blocked, a critical Windows event, memory that keeps growing and a command
 measured with `tpulse --` that finishes, also while Pulse is out of sight.
+
+**Right-click.** The right button opens a menu for whatever is under the mouse, so you do not have to remember a key:
+
+- **A moment of a graph:** freeze it, put a mark on it, copy it (the values of every graph and the busiest processes),
+  zoom in around it, or select the minute before it.
+- **A selection:** zoom in, save it, copy its summary, make it the baseline, clear it.
+- **A graph or its title:** hide it, make it tall or fold it, move it up or down, show only that graph and back.
+- **A process in the side panel or the flyout:** follow it as a graph of its own, from that moment on (up to three
+  extra graphs, on this machine), or copy its name.
+- **A repository:** open its folder, open a terminal tab there, copy the path. **An event:** go to its moment. **A
+  disk:** open it in Explorer.
+- **A section of the side panel:** move it up or down, or hide it.
+
+Dragging with the right button pans through time. The window has the same menu for a graph and its moment.
+
+**Your layout.** `L` opens the layout screen: the graphs and the sections of the side panel, each in its place and
+shown or hidden. Move one with `Shift` + `↑` `↓`, show or hide it with `Space`. Pulse remembers the order, also in the
+window. Every section of the side panel says what it shows ("TOP CPU right now", "GIT 3 active · 12 with changes"), a
+row of figures has a dim row naming its columns, and the notes are written out ("7 files changed · ↑2 to push", "last
+commit 5 min ago").
 
 ## Measure and mark
 

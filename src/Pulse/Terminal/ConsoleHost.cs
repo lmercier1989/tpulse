@@ -16,7 +16,7 @@ internal readonly record struct KeyPress(ushort VirtualKey, char Character, bool
 /// <param name="Moved">The mouse moved (rather than a button changing).</param>
 /// <param name="DoubleClick">The second click of a double click.</param>
 /// <param name="Wheel">Wheel steps: positive away from the user, negative toward; 0 for no wheel.</param>
-internal readonly record struct MouseInput(int Column, int Row, bool LeftButton, bool Moved, bool DoubleClick, int Wheel);
+internal readonly record struct MouseInput(int Column, int Row, bool LeftButton, bool Moved, bool DoubleClick, int Wheel, bool RightButton = false);
 
 /// <summary>
 /// The Windows console the monitor runs in: raw keyboard input (no echo, no line editing, Ctrl+C as a key),
@@ -41,6 +41,7 @@ internal sealed unsafe partial class ConsoleHost : IDisposable
 	private const uint DoubleClicked = 0x2;
 	private const uint MouseWheeled = 0x4;
 	private const uint LeftButtonPressed = 0x1;
+	private const uint RightButtonPressed = 0x2;
 	private const uint ShiftPressed = 0x10;
 	private const uint ControlPressed = 0x04 | 0x08;
 	private const uint AltPressed = 0x01 | 0x02;
@@ -185,7 +186,8 @@ internal sealed unsafe partial class ConsoleHost : IDisposable
 						(record.MouseButtons & LeftButtonPressed) != 0,
 						(record.MouseFlags & MouseMoved) != 0,
 						(record.MouseFlags & DoubleClicked) != 0,
-						wheel));
+						wheel,
+						(record.MouseButtons & RightButtonPressed) != 0));
 				}
 			}
 		}

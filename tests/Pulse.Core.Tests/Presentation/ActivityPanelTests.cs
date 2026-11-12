@@ -26,7 +26,7 @@ public sealed class ActivityPanelTests
 		// Assert
 		Assert.Contains(lines, line => line is { Label: "GIT", Kind: PanelLineKind.Section });
 		Assert.Contains(lines, line => line is { Label: "Webshop", Text: "feature/x · rebasing", Right: "+120 −30", Warning: true });
-		Assert.Contains(lines, line => line is { Kind: PanelLineKind.Note, Text: "7 files · ↑2 ↓0", Right: "commit 5 min" });
+		Assert.Contains(lines, line => line is { Kind: PanelLineKind.Note, Text: "7 files changed · ↑2 to push", Right: "last commit 5 min ago" });
 		Assert.Contains(lines, line => line is { Text: "index.lock blocks git", Right: "3 min", Warning: true });
 		Assert.Contains(lines, line => line is { Label: "Pulse", Text: "main", Right: "clean" });
 	}

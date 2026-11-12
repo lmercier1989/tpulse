@@ -56,17 +56,17 @@ public static class RangePanel
 
 		foreach (var load in range.Cpu.Take(MaximumCpu))
 		{
-			lines.Add(new PanelLine(PanelLineKind.Field, load.Name, InfoPanel.CountOf(load), 2, Right: InfoPanel.Cpu(load)));
+			lines.Add(new PanelLine(PanelLineKind.Field, load.Name, InfoPanel.CountOf(load), 2, Right: InfoPanel.Cpu(load), Link: InfoPanel.Process(load.Name)));
 		}
 
 		foreach (var load in range.Io.Take(MaximumIo))
 		{
-			lines.Add(new PanelLine(PanelLineKind.Field, load.Name, InfoPanel.CountOf(load), 3, Right: InfoPanel.Io(load)));
+			lines.Add(new PanelLine(PanelLineKind.Field, load.Name, InfoPanel.CountOf(load), 3, Right: InfoPanel.Io(load), Link: InfoPanel.Process(load.Name)));
 		}
 
 		foreach (var item in range.Events.TakeLast(InfoPanel.MaximumEvents))
 		{
-			lines.Add(new PanelLine(PanelLineKind.Field, item.Action, $"{item.Source} · {item.Text}", 3, Warning: item.Kind == EventKind.Error, Right: item.At.LocalDateTime.ToString("T", culture), Event: item.Kind));
+			lines.Add(new PanelLine(PanelLineKind.Field, item.Action, $"{item.Source} · {item.Text}", 3, Warning: item.Kind == EventKind.Error, Right: item.At.LocalDateTime.ToString("T", culture), Event: item.Kind, Link: InfoPanel.EventLink(item)));
 		}
 
 		lines.Add(new PanelLine(PanelLineKind.Blank, string.Empty, string.Empty, 9));
@@ -100,7 +100,7 @@ public static class RangePanel
 		var lines = new List<PanelLine> { InfoPanel.Section("CPU by process", "average") };
 		for (var i = 0; i < names.Count; i++)
 		{
-			lines.Add(new PanelLine(PanelLineKind.Field, names[i].Name, InfoPanel.CountOf(names[i]), 2, Right: InfoPanel.Cpu(names[i]), Swatch: i));
+			lines.Add(new PanelLine(PanelLineKind.Field, names[i].Name, InfoPanel.CountOf(names[i]), 2, Right: InfoPanel.Cpu(names[i]), Swatch: i, Link: InfoPanel.Process(names[i].Name)));
 		}
 
 		var other = double.IsFinite(averageTotal) ? Math.Max(0, averageTotal - names.Sum(name => name.Value)) : double.NaN;

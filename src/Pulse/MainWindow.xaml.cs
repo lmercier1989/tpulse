@@ -577,7 +577,7 @@ public partial class MainWindow : Window
 		ChannelHost.Margin = _settings.Compact ? new Thickness(10, 6, 10, 8) : new Thickness(16, 10, 16, 14);
 		var spacing = _settings.Compact ? 6.0 : 12.0;
 
-		var visible = Enumerable.Range(0, _graphs.Count).Where(index => _graphs[index].Visible).ToList();
+		var visible = Graph.DisplayOrder(_graphs, _settings.GraphOrder).Where(index => _graphs[index].Visible).ToList();
 		for (var row = 0; row < visible.Count; row++)
 		{
 			var graph = _graphs[visible[row]];
@@ -950,10 +950,120 @@ public partial class MainWindow : Window
 		HelpFooter.Text = "From a terminal: tpulse -help, or ? twice inside tpulse, lists every command.";
 	}
 
+	/// <summary>
+	/// The first rows of the menu, as in the terminal: for the moment under the mouse (mark it, copy it) and for its graph
+	/// (hide it, its size, its place, only it).
+	/// </summary>
+	private void AddTargetEntries(ContextMenu menu)
+	{
+		var index = Array.FindIndex(_panels, panel => panel.IsMouseOver);
+		if (index < 0)
+		{
+			return;
+		}
+
+		var graph = _graphs[index];
+		var title = ChannelText.TitleOf(graph.Channel);
+		var scope = _panels[index].Scope;
+		if (scope.IsMouseOver && scope.ActualWidth > 0)
+		{
+			var fraction = Math.Clamp(Mouse.GetPosition(scope).X / scope.ActualWidth, 0, 1);
+			var now = _paused || Scrolled ? ViewTime() : MonotonicClock.Now;
+			var time = now - _settings.DisplayDelaySeconds - ((1 - fraction) * _settings.HistorySeconds);
+			var at = TimeProvider.System.GetLocalNow() - TimeSpan.FromSeconds(Math.Max(0, MonotonicClock.Now - time));
+			var text = at.ToString("T", CultureInfo.CurrentCulture);
+			menu.Items.Add(MenuEntry($"Mark {text}", null, () => Mark(at, text)));
+			menu.Items.Add(MenuEntry("Copy this moment", null, () => CopyText(TooltipText(graph, fraction))));
+			menu.Items.Add(new Separator());
+		}
+
+		menu.Items.Add(MenuEntry($"Hide {title}", Graph.KeyOf(index).ToString(), () => ToggleVisible(graph)));
+		foreach (var (size, name) in new[] { (ChannelSize.Normal, "Normal size"), (ChannelSize.Tall, "Tall"), (ChannelSize.Collapsed, "Fold to its title") })
+		{
+			if (graph.Size != size)
+			{
+				menu.Items.Add(MenuEntry(name, $"Shift+{Graph.KeyOf(index)}", () => SetSize(graph, size)));
+			}
+		}
+
+		if (graph.OrderName.Length > 0)
+		{
+			foreach (var (delta, name) in new[] { (-1, "Move up"), (1, "Move down") })
+			{
+				var order = Graph.DisplayOrder(_graphs, _settings.GraphOrder).Where(other => _graphs[other].OrderName.Length > 0).Select(other => _graphs[other].OrderName).ToList();
+				var moved = LayoutOrder.Move(order, other => _graphs.First(candidate => candidate.OrderName == other).Visible, graph.OrderName, delta);
+				if (!moved.SequenceEqual(order))
+				{
+					menu.Items.Add(MenuEntry(name, null, () =>
+					{
+						Change(settings => settings.GraphOrder = [.. moved]);
+						BuildLayout();
+					}));
+				}
+			}
+		}
+
+		if (_graphs.Count(other => other.Visible) > 1)
+		{
+			menu.Items.Add(MenuEntry($"Only {title}", null, () =>
+			{
+				foreach (var other in _graphs)
+				{
+					other.SetVisible(other == graph);
+				}
+
+				BuildLayout();
+			}));
+		}
+
+		if (_graphs.Any(other => !other.Visible))
+		{
+			menu.Items.Add(MenuEntry("Show all graphs", null, () =>
+			{
+				foreach (var other in _graphs)
+				{
+					other.SetVisible(true);
+				}
+
+				BuildLayout();
+			}));
+		}
+
+		menu.Items.Add(new Separator());
+	}
+
+	/// <summary>Puts a mark at <paramref name="at"/> on every running Pulse, this window included.</summary>
+	private void Mark(DateTimeOffset at, string text)
+	{
+		try
+		{
+			MarkLog.Append(MarkLog.DefaultPath(), at, "mark", "Pulse", $"marked at {text}");
+			ShowToast(Messages.Marked(text));
+		}
+		catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+		{
+			ShowToast(Messages.SaveFailed(ex.Message));
+		}
+	}
+
+	private void CopyText(string text)
+	{
+		try
+		{
+			Clipboard.SetText(text);
+			ShowToast(Messages.Copied);
+		}
+		catch (System.Runtime.InteropServices.ExternalException)
+		{
+			ShowToast(Messages.ClipboardBusy);
+		}
+	}
+
 	private void OnContextMenuOpening(object sender, ContextMenuEventArgs e)
 	{
 		var menu = Root.ContextMenu;
 		menu.Items.Clear();
+		AddTargetEntries(menu);
 		menu.Items.Add(MenuEntry(_paused ? "Resume" : "Pause", "Space", TogglePause));
 		menu.Items.Add(new Separator());
 

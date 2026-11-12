@@ -5,6 +5,28 @@ using Pulse.Core.Metrics;
 
 namespace Pulse.Core.Presentation;
 
+/// <summary>What a row of the panel stands for, so a right-click can offer what fits it.</summary>
+public enum PanelLinkKind
+{
+	/// <summary>A process name: follow it as a graph, copy the name.</summary>
+	Process,
+
+	/// <summary>A git working tree: open its folder, a terminal there, copy the path.</summary>
+	Repository,
+
+	/// <summary>An event: go to its moment, copy it.</summary>
+	Event,
+
+	/// <summary>A volume: open it in Explorer.</summary>
+	Disk,
+}
+
+/// <summary>The thing a row of the panel stands for.</summary>
+/// <param name="Kind">A process, a repository, an event or a disk.</param>
+/// <param name="Value">The process name, the folder of the repository, the text of the event or the root of the disk.</param>
+/// <param name="Time">The moment of an event on the sample clock; NaN for the others.</param>
+public sealed record PanelLink(PanelLinkKind Kind, string Value, double Time = double.NaN);
+
 /// <summary>What a row of the info panel shows.</summary>
 public enum PanelLineKind
 {
@@ -30,6 +52,7 @@ public enum PanelLineKind
 /// <param name="Right">A short value right-aligned at the end of the row: a load, a size, a time ago.</param>
 /// <param name="Swatch">The band of the stacked CPU graph whose colour goes in front of the label; -1 for none.</param>
 /// <param name="Event">The kind of event a row stands for; its marker colour goes in front of the label.</param>
+/// <param name="Link">The process, repository, event or disk the row stands for; null for the others.</param>
 public readonly record struct PanelLine(
 	PanelLineKind Kind,
 	string Label,
@@ -40,7 +63,8 @@ public readonly record struct PanelLine(
 	bool Warning = false,
 	string Right = "",
 	int Swatch = -1,
-	EventKind? Event = null)
+	EventKind? Event = null,
+	PanelLink? Link = null)
 {
 	/// <summary>The columns a swatch or an event mark takes in front of the label.</summary>
 	public int MarkWidth => Swatch >= 0 || Event is not null ? 2 : 0;
@@ -138,8 +162,8 @@ public static class InfoPanel
 		// While looking into a moment, its busiest processes and events are listed at the top already.
 		if (sample is not null && focus is null)
 		{
-			AddTop(lines, "Top CPU", [.. sample.TopCpu.Take(MaximumTop)], Cpu, 4);
-			AddTop(lines, "Top I/O", [.. sample.TopIo.Take(MaximumTop)], Io, 5);
+			AddTop(lines, "Top CPU", "right now", [.. sample.TopCpu.Take(MaximumTop)], Cpu, 4);
+			AddTop(lines, "Top I/O", "read and written, right now", [.. sample.TopIo.Take(MaximumTop)], Io, 5);
 		}
 
 		if (sample is { Leaks.Count: > 0 })
@@ -179,8 +203,9 @@ public static class InfoPanel
 			lines.Add(Section("Disks"));
 			foreach (var disk in details.Disks)
 			{
-				lines.Add(new PanelLine(PanelLineKind.Gauge, disk.Name, string.Empty, 1, disk.UsedPercent));
-				lines.Add(Note(disk.Label?.Trim() ?? string.Empty, 4, right: $"{Units.Bytes(disk.FreeBytes)} free of {Units.Bytes(disk.TotalBytes)}"));
+				var root = new PanelLink(PanelLinkKind.Disk, disk.Name.TrimEnd('\\') + "\\");
+				lines.Add(new PanelLine(PanelLineKind.Gauge, disk.Name, string.Empty, 1, disk.UsedPercent, Link: root));
+				lines.Add(Note(disk.Label?.Trim() ?? string.Empty, 4, right: $"{Units.Bytes(disk.FreeBytes)} free of {Units.Bytes(disk.TotalBytes)}") with { Link = root });
 			}
 		}
 
@@ -354,19 +379,25 @@ public static class InfoPanel
 	{
 		var usage = sample.ClaudeProcesses;
 		lines.Add(Blank());
-		lines.Add(Section("Claude"));
+		lines.Add(Section("Claude", "what it costs this machine"));
 		if (usage.IsRunning)
 		{
+			lines.Add(Note(string.Empty, 2, right: "CPU · memory"));
 			lines.Add(Field("app", string.Empty, 2, right: Load(usage.AppCpu, usage.AppBytes)));
 			lines.Add(Field("sessions", $"{usage.Sessions}", 1, emphasis: true, right: Load(usage.SessionsCpu, usage.SessionsBytes)));
 			lines.Add(Field("tools", $"{usage.Tools}", 1, right: Load(usage.ToolsCpu, usage.ToolsBytes)));
+		}
+
+		if (sample.ClaudeSessions.Count > 0)
+		{
+			lines.Add(Note("context", 4, right: "last answer"));
 		}
 
 		foreach (var session in sample.ClaudeSessions)
 		{
 			var project = string.IsNullOrEmpty(session.Project) ? "session" : session.Project;
 			var ago = (sample.RecordedAt ?? TimeProvider.System.GetUtcNow()) - session.LastActivity;
-			lines.Add(Note($"{project} · ctx {Units.Tokens(session.ContextTokens)}", 4, right: FormatAgo(ago)));
+			lines.Add(Field(project, Units.Tokens(session.ContextTokens), 4, right: Ago(ago)));
 		}
 	}
 
@@ -378,9 +409,16 @@ public static class InfoPanel
 	/// </summary>
 	private static void AddGit(List<PanelLine> lines, GitActivity git, DateTimeOffset now)
 	{
-		lines.Add(Blank());
-		lines.Add(Section("Git"));
 		var shown = git.Repositories.Where(repository => repository.IsShown).OrderByDescending(repository => repository.LastActivity).ToList();
+		var active = git.Repositories.Count(repository => repository.Active);
+		var changed = git.Repositories.Count(repository => repository.ChangedFiles > 0);
+		lines.Add(Blank());
+		lines.Add(Section("Git", $"{active} active · {changed} with changes"));
+		if (shown.Count > 0)
+		{
+			lines.Add(Note("branch", 2, right: "uncommitted"));
+		}
+
 		for (var index = 0; index < shown.Count && index < MaximumRepositories; index++)
 		{
 			var repository = shown[index];
@@ -388,16 +426,24 @@ public static class InfoPanel
 			var changes = !repository.StatusKnown ? string.Empty
 				: repository.ChangedFiles == 0 ? "clean"
 				: $"+{Units.Number(repository.Insertions)} −{Units.Number(repository.Deletions)}";
-			lines.Add(Field(repository.Name, branch, index < 3 ? 1 : 5, emphasis: true, warning: repository.State is not null, right: changes));
+			var link = new PanelLink(PanelLinkKind.Repository, repository.Root);
+			lines.Add(Field(repository.Name, branch, index < 3 ? 1 : 5, emphasis: true, warning: repository.State is not null, right: changes) with { Link = link });
 			if (index < 2)
 			{
-				var files = repository.StatusKnown && repository.ChangedFiles > 0 ? $"{repository.ChangedFiles} files" : null;
-				var upstream = repository.Ahead is { } ahead ? $"↑{ahead} ↓{repository.Behind ?? 0}" : null;
+				var files = repository.StatusKnown && repository.ChangedFiles > 0 ? $"{repository.ChangedFiles} files changed" : null;
+				var upstream = repository.Ahead is not { } ahead ? null
+					: (ahead, repository.Behind ?? 0) switch
+					{
+						(0, 0) => "in sync",
+						(var push, 0) => $"↑{push} to push",
+						(0, var pull) => $"↓{pull} to pull",
+						var (push, pull) => $"↑{push} to push · ↓{pull} to pull",
+					};
 				var detail = string.Join(" · ", new[] { files, upstream }.Where(part => part is not null));
-				var commit = repository.LastCommit is { } last ? $"commit {FormatAgo(now - last)}" : string.Empty;
+				var commit = repository.LastCommit is { } last ? $"last commit {Ago(now - last)}" : string.Empty;
 				if (detail.Length > 0 || commit.Length > 0)
 				{
-					lines.Add(Note(detail, 6, right: commit));
+					lines.Add(Note(detail, 6, right: commit) with { Link = link });
 				}
 			}
 
@@ -414,7 +460,49 @@ public static class InfoPanel
 		}
 	}
 
-	/// <summary>The busiest process names, the load right-aligned; "×24" when that many processes share the name.</summary>
+	/// <summary>
+	/// The sections of <paramref name="lines"/> in the order of <paramref name="order"/> (by title, see
+	/// <see cref="Settings.LayoutOrder"/>), without the ones in <paramref name="hidden"/>, a blank row between sections.
+	/// </summary>
+	public static List<PanelLine> Arrange(IReadOnlyList<PanelLine> lines, IReadOnlyList<string> order, IReadOnlyCollection<string> hidden)
+	{
+		var sections = Settings.LayoutOrder.Sort(Sections(lines), section => section.Title, order)
+			.Where(section => !hidden.Contains(section.Title, StringComparer.OrdinalIgnoreCase))
+			.ToList();
+		var arranged = new List<PanelLine>();
+		foreach (var section in sections)
+		{
+			if (arranged.Count > 0)
+			{
+				arranged.Add(Blank());
+			}
+
+			arranged.AddRange(section.Rows);
+		}
+
+		return arranged;
+	}
+
+	/// <summary>The sections of <paramref name="lines"/>: each title with its rows, the blank rows between them left out.</summary>
+	public static List<(string Title, List<PanelLine> Rows)> Sections(IReadOnlyList<PanelLine> lines)
+	{
+		var sections = new List<(string Title, List<PanelLine> Rows)>();
+		foreach (var line in lines)
+		{
+			if (line.Kind == PanelLineKind.Section || sections.Count == 0)
+			{
+				sections.Add((line.Kind == PanelLineKind.Section ? line.Label : string.Empty, []));
+			}
+
+			if (line.Kind != PanelLineKind.Blank)
+			{
+				sections[^1].Rows.Add(line);
+			}
+		}
+
+		return [.. sections.Where(section => section.Rows.Count > 0)];
+	}
+
 	/// <summary>Only the lines of a moment looked into, for the flyout next to the mouse.</summary>
 	public static List<PanelLine> BuildFocus(MetricSnapshot sample, PanelFocus focus)
 	{
@@ -428,14 +516,15 @@ public static class InfoPanel
 	{
 		var culture = CultureInfo.CurrentCulture;
 		lines.Add(Blank());
-		lines.Add(Section("Growing memory"));
+		lines.Add(Section("Growing memory", "steadily, for ten minutes"));
 		foreach (var leak in leaks.Take(3))
 		{
-			lines.Add(Field(leak.Name, $"+{Units.Bytes(leak.GrowthBytes, culture)} in {leak.Minutes.ToString("0", culture)} min", 2, warning: true, right: Units.Bytes(leak.Bytes, culture)));
+			lines.Add(Field(leak.Name, $"+{Units.Bytes(leak.GrowthBytes, culture)} in {leak.Minutes.ToString("0", culture)} min", 2, warning: true, right: Units.Bytes(leak.Bytes, culture)) with { Link = Process(leak.Name) });
 		}
 	}
 
-	private static void AddTop(List<PanelLine> lines, string title, IReadOnlyList<ProcessLoad> loads, Func<ProcessLoad, string> format, int priority)
+	/// <summary>The busiest process names, the load right-aligned; "×24" when that many processes share the name.</summary>
+	private static void AddTop(List<PanelLine> lines, string title, string detail, IReadOnlyList<ProcessLoad> loads, Func<ProcessLoad, string> format, int priority)
 	{
 		if (loads.Count == 0)
 		{
@@ -443,23 +532,32 @@ public static class InfoPanel
 		}
 
 		lines.Add(Blank());
-		lines.Add(Section(title));
+		lines.Add(Section(title, detail));
 		foreach (var load in loads)
 		{
-			lines.Add(Field(load.Name, load.Count > 1 ? $"×{load.Count}" : string.Empty, priority, right: format(load)));
+			lines.Add(Field(load.Name, CountOf(load), priority, right: format(load)) with { Link = Process(load.Name) });
 		}
 	}
+
+	/// <summary>The link of a row that stands for a process.</summary>
+	internal static PanelLink Process(string name) => new(PanelLinkKind.Process, name);
+
+	/// <summary>The link of a row that stands for an event.</summary>
+	internal static PanelLink EventLink(PulseEvent item) => new(PanelLinkKind.Event, $"{item.Action} · {item.Source} · {item.Text}", item.Time);
+
+	/// <summary>"18 s ago", "just now": a time ago in a sentence.</summary>
+	internal static string Ago(TimeSpan ago) => FormatAgo(ago) is "now" ? "just now" : $"{FormatAgo(ago)} ago";
 
 	/// <summary>The latest events, newest first, how long ago right-aligned; Windows errors in the warning colour.</summary>
 	private static void AddEvents(List<PanelLine> lines, IReadOnlyList<PulseEvent> events, DateTimeOffset now)
 	{
 		lines.Add(Blank());
-		lines.Add(Section("Events"));
+		lines.Add(Section("Events", "latest first"));
 		for (var i = 0; i < events.Count && i < MaximumEvents; i++)
 		{
 			var item = events[i];
 			var text = string.IsNullOrEmpty(item.Text) ? item.Source : $"{item.Source} · {item.Text}";
-			lines.Add(Field(item.Action, text, i < 2 ? 3 : 5, warning: item.Kind == EventKind.Error, right: FormatAgo(now - item.At)) with { Event = item.Kind });
+			lines.Add(Field(item.Action, text, i < 2 ? 3 : 5, warning: item.Kind == EventKind.Error, right: FormatAgo(now - item.At)) with { Event = item.Kind, Link = EventLink(item) });
 		}
 	}
 
@@ -474,12 +572,12 @@ public static class InfoPanel
 		var cpu = sample.TopCpu.Take(MaximumFocusTop).ToList();
 		for (var i = 0; i < cpu.Count; i++)
 		{
-			lines.Add(Field(cpu[i].Name, cpu[i].Count > 1 ? $"×{cpu[i].Count}" : string.Empty, i < 3 ? 1 : 3, emphasis: i == 0, right: Cpu(cpu[i])));
+			lines.Add(Field(cpu[i].Name, CountOf(cpu[i]), i < 3 ? 1 : 3, emphasis: i == 0, right: Cpu(cpu[i])) with { Link = Process(cpu[i].Name) });
 		}
 
 		foreach (var load in sample.TopIo.Take(MaximumTop))
 		{
-			lines.Add(Field(load.Name, load.Count > 1 ? $"×{load.Count}" : string.Empty, 3, right: Io(load)));
+			lines.Add(Field(load.Name, CountOf(load), 3, right: Io(load)) with { Link = Process(load.Name) });
 		}
 
 		if (cpu.Count == 0 && sample.TopIo.Count == 0)
@@ -490,7 +588,7 @@ public static class InfoPanel
 		foreach (var item in focus.Events.Take(MaximumEvents))
 		{
 			var text = string.IsNullOrEmpty(item.Text) ? item.Source : $"{item.Source} · {item.Text}";
-			lines.Add(Field(item.Action, text, 2, warning: item.Kind == EventKind.Error, right: item.At.LocalDateTime.ToString("T", culture)) with { Event = item.Kind });
+			lines.Add(Field(item.Action, text, 2, warning: item.Kind == EventKind.Error, right: item.At.LocalDateTime.ToString("T", culture)) with { Event = item.Kind, Link = EventLink(item) });
 		}
 
 		if (focus.InView.Count > 0)
@@ -499,7 +597,7 @@ public static class InfoPanel
 			lines.Add(Section("In view", "average CPU"));
 			foreach (var load in focus.InView)
 			{
-				lines.Add(Field(load.Name, load.Count > 1 ? $"×{load.Count}" : string.Empty, 3, right: Cpu(load)));
+				lines.Add(Field(load.Name, CountOf(load), 3, right: Cpu(load)) with { Link = Process(load.Name) });
 			}
 		}
 	}

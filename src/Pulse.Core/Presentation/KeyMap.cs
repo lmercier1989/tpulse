@@ -70,9 +70,11 @@ public static class KeyMap
 				new("Click", "Keep that moment until the next click or Esc", Surface.Terminal),
 				new("Drag", "Select a range of time", Surface.Terminal),
 				new("Wheel", "Scroll through time"),
+				new("Right-click", "Menu for what is under the mouse", Surface.Terminal),
+				new("Right-drag", "Pan through time", Surface.Terminal),
 				new("Click a title", "Fold or unfold that graph"),
 				new("Double-click", "Make that graph tall", Surface.Window),
-				new("Right-click", "The menu", Surface.Window),
+				new("Right-click", "Menu for that graph and moment", Surface.Window),
 			]),
 			new("Selection",
 			[
@@ -95,6 +97,8 @@ public static class KeyMap
 			new("Screen",
 			[
 				new("I", "Side panel on or off", Surface.Terminal),
+				new("L", "Layout: order and show graphs and sections", Surface.Terminal),
+				new("Menu key", "The menu at the mouse (also Shift + F10)", Surface.Terminal),
 				new("D", "Moment details: at the mouse or in the panel", Surface.Terminal),
 				new("C", "Compact layout"),
 				new("T", "Always on top", Surface.Window),
@@ -115,7 +119,7 @@ public static class KeyMap
 	/// <summary>The footer of the terminal: the keys to start with, the rest is behind <c>?</c>.</summary>
 	public static string Hints(int graphCount, bool replay) => replay
 		? $"Space play · ← → scroll · H zoom · 1-{Processing.Graph.KeyOf(graphCount - 1)} graphs · ? help · Q quit"
-		: $"Space pause · ← → scroll · Drag select · 1-{Processing.Graph.KeyOf(graphCount - 1)} graphs · ? help · Q quit";
+		: $"Space pause · ← → scroll · Drag select · Right-click menu · 1-{Processing.Graph.KeyOf(graphCount - 1)} graphs · ? help · Q quit";
 
 	/// <summary>What a shell can run: the second page of <c>?</c>, so no option has to be remembered.</summary>
 	public static IReadOnlyList<KeyBinding> ShellCommands { get; } =

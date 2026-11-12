@@ -145,6 +145,18 @@ Which metrics come from where, and what Windows cannot provide, is in [hardware-
   (a mark, a selection) sky blue, what Pulse found orange (a spike) or pink (a leak), an error red; the stacked bands use
   colours no marker uses. A section title is a capitalised noun with its detail as written ("SELECTION 14:32:05 ·
   1 min 5 s"); a list of figures gets a dim row naming its columns.
+* **Right button.** The console reports both buttons; a press and release without moving opens the menu, a move with
+  the button down pans: the view moves by one column of history per cell. The menu is drawn like the flyout, after
+  it, and again whenever something under it was drawn; while it is open the mouse and the keys work the menu. It
+  offers what fits the target: the layout of the screen tells a plot, a title or the side panel apart, and every row
+  of the side panel carries what it stands for (a process, a repository, an event, a disk) and belongs to the section
+  above it.
+* **Following a process while running.** The collector takes one more process watch between two samples (a lock keeps
+  a sample and an addition apart), marks its image name in the process snapshot and reads it from the next sample on;
+  the app adds a graph with buffers of its own. A recording keeps the columns it started with.
+* **Layout.** The built-in graphs and the sections of the side panel are ordered by a list of names in the settings;
+  a name the list does not hold keeps its natural place after the ones it does, so a section that appears later
+  still shows. Moving trades places with the nearest shown neighbour. The keys stay with their graph wherever it is.
 * **Flyout.** The moment under the mouse is written as text over the graphs, after the plots of a frame, and again
   whenever a plot under it was sent. When it moves or closes, the next frame erases where it was and sends the
   headers and plots there again.

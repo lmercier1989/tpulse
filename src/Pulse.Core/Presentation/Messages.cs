@@ -56,4 +56,13 @@ public static class Messages
 	public static string Details(bool inPanel) => inPanel ? "Details in the side panel" : "Details next to the mouse";
 
 	public static string Topmost(bool on) => on ? "Always on top" : "Not on top";
+
+	/// <summary>"Following devenv as graph 8".</summary>
+	public static string Following(string name, char key) => $"Following {name} as graph {key}";
+
+	public const string CannotFollow = "Up to three extra graphs, and only on this machine";
+
+	public static string Marked(string time) => $"Marked {time}";
+
+	public const string SectionHidden = "Section hidden · L shows it again";
 }

@@ -49,7 +49,7 @@ public sealed class InfoPanelTests
 		Assert.Contains(lines, line => line.Label == "CLAUDE");
 		Assert.Contains(lines, line => line is { Label: "sessions", Text: "2" } && line.Right.EndsWith("MB", StringComparison.Ordinal));
 		Assert.Contains(lines, line => line is { Label: "tools", Text: "5" } && line.Right.Length > 0);
-		Assert.Contains(lines, line => line.Kind == PanelLineKind.Note && line.Text.StartsWith("Pulse · ctx 142k", StringComparison.Ordinal));
+		Assert.Contains(lines, line => line is { Kind: PanelLineKind.Field, Label: "Pulse", Text: "142k", Right: "just now" });
 		Assert.Contains(lines, line => line is { Label: "ping", Text: "<1 ms" });
 	}
 

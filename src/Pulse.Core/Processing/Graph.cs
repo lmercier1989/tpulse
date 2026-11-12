@@ -55,6 +55,24 @@ public sealed class Graph
 		return graphs;
 	}
 
+	/// <summary>An extra graph for a watch added while Pulse runs: shown, at normal size, not remembered.</summary>
+	public static Graph ForWatch(WatchSpec watch, int index, int capacity = 0)
+		=> new(Channel.ForWatch(watch, index, capacity), new ChannelSettings(), null);
+
+	/// <summary>The name a built-in graph has in <see cref="PulseSettings.GraphOrder"/>; empty for an extra graph.</summary>
+	public string OrderName => MetricKinds.Builtin.Contains(Kind) ? Kind.ToString() : string.Empty;
+
+	/// <summary>
+	/// The indexes of <paramref name="graphs"/> from top to bottom: the built-in ones in <paramref name="order"/>, the extra
+	/// graphs after them in key order. The keys stay with their graph, wherever it is shown.
+	/// </summary>
+	public static List<int> DisplayOrder(IReadOnlyList<Graph> graphs, IReadOnlyList<string> order)
+	{
+		var builtin = Enumerable.Range(0, graphs.Count).Where(index => graphs[index].OrderName.Length > 0).ToList();
+		var extra = Enumerable.Range(0, graphs.Count).Where(index => graphs[index].OrderName.Length == 0);
+		return [.. LayoutOrder.Sort(builtin, index => graphs[index].OrderName, order), .. extra];
+	}
+
 	public void SetVisible(bool visible)
 	{
 		_settings.Visible = visible;

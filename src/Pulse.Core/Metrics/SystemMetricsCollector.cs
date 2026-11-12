@@ -56,8 +56,9 @@ public sealed class SystemMetricsCollector : IDisposable
 	private const double Megabyte = 1024 * 1024;
 
 	private readonly string? _host;
-	private readonly WatchSpec[] _watches;
-	private readonly nint[] _watchCounters;
+	private readonly Lock _gate = new();
+	private WatchSpec[] _watches;
+	private nint[] _watchCounters;
 	private readonly PdhQuery? _pdh;
 	private readonly nint _cpu;
 	private readonly nint _cores;
@@ -98,7 +99,7 @@ public sealed class SystemMetricsCollector : IDisposable
 	private readonly Dictionary<int, int> _coreSlots = [];
 	private readonly ProcessSnapshot? _snapshot;
 	private readonly ClaudeProcesses? _claudeProcesses;
-	private readonly ProcessWatches? _processWatches;
+	private ProcessWatches? _processWatches;
 	private readonly ClaudeTranscripts? _claudeTranscripts;
 	private readonly IPAddress? _hostAddress;
 	private readonly string _remoteOperatingSystem = string.Empty;
@@ -341,10 +342,45 @@ public sealed class SystemMetricsCollector : IDisposable
 		return null;
 	}
 
+	/// <summary>
+	/// Follows the processes named <paramref name="name"/> from the next sample on, as one more extra graph: only on this
+	/// machine, and up to <see cref="WatchSpec.MaximumCount"/> extra graphs. <paramref name="index"/> is where its
+	/// readings stand in <see cref="MetricSnapshot.Watches"/>.
+	/// </summary>
+	public bool TryFollowProcess(string name, out WatchSpec watch, out int index)
+	{
+		watch = new WatchSpec(WatchKind.Process, name);
+		index = -1;
+		lock (_gate)
+		{
+			if (_host is not null || _snapshot is null || _watches.Length >= WatchSpec.MaximumCount
+				|| _watches.Any(existing => existing.Kind == WatchKind.Process && string.Equals(existing.Target, name, StringComparison.OrdinalIgnoreCase)))
+			{
+				return false;
+			}
+
+			_watches = [.. _watches, watch];
+			_watchCounters = [.. _watchCounters, 0];
+			_snapshot.WatchedNames = ProcessWatches.ImageNames(_watches);
+			_processWatches = new ProcessWatches(_watches);
+			index = _watches.Length - 1;
+			return true;
+		}
+	}
+
 	/// <summary>Samples every source once.</summary>
 	public MetricSnapshot Collect()
 	{
 		ObjectDisposedException.ThrowIf(_disposed, this);
+		lock (_gate)
+		{
+			return CollectLocked();
+		}
+	}
+
+	/// <summary>One sample of every source, while no process is added to the ones followed.</summary>
+	private MetricSnapshot CollectLocked()
+	{
 
 		_pdh?.Collect();
 		var time = MonotonicClock.Now;

@@ -67,7 +67,7 @@ internal sealed unsafe class ProcessSnapshot
 	public static bool IsSupported => IntPtr.Size == 8;
 
 	/// <summary>Image names to mark in <see cref="ProcessRecord.Watch"/>, such as "devenv.exe"; compared ignoring case.</summary>
-	public string[] WatchedNames { get; init; } = [];
+	public string[] WatchedNames { get; set; } = [];
 
 	/// <summary>Takes a snapshot; empty when the system call fails. Valid until the next call.</summary>
 	public ReadOnlySpan<ProcessRecord> Take()

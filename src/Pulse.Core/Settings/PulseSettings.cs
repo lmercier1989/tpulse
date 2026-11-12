@@ -78,8 +78,17 @@ public sealed class PulseSettings
 	/// <summary>The CPU graph as stacked bands of the busiest processes rather than one trace (S in the terminal).</summary>
 	public bool StackCpu { get; set; }
 
-	/// <summary>Looking into a moment fills the side panel rather than a flyout at the mouse (T in the terminal).</summary>
+	/// <summary>Looking into a moment fills the side panel rather than a flyout at the mouse (D in the terminal).</summary>
 	public bool FocusInPanel { get; set; }
+
+	/// <summary>The built-in graphs from top to bottom, by kind name; one it does not name keeps its own place after them.</summary>
+	public List<string> GraphOrder { get; set; } = [];
+
+	/// <summary>The sections of the side panel from top to bottom, by title; one it does not name keeps its own place after them.</summary>
+	public List<string> PanelOrder { get; set; } = [];
+
+	/// <summary>The sections of the side panel that are left out, by title.</summary>
+	public List<string> HiddenSections { get; set; } = [];
 
 	/// <summary>One entry per built-in graph (<see cref="MetricKinds.Builtin"/>), in enum order.</summary>
 	public ChannelSettings[] Channels { get; set; } = CreateChannels();
@@ -157,6 +166,9 @@ public sealed class PulseSettings
 		Notify = Notify,
 		StackCpu = StackCpu,
 		FocusInPanel = FocusInPanel,
+		GraphOrder = [.. GraphOrder ?? []],
+		PanelOrder = [.. PanelOrder ?? []],
+		HiddenSections = [.. HiddenSections ?? []],
 		Channels = [.. Channels.Select(c => new ChannelSettings { Visible = c.Visible, Size = c.Size })],
 		Window = Window is null ? null : new WindowBounds
 		{

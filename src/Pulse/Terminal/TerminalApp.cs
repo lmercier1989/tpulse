@@ -21,7 +21,7 @@ namespace Pulse.Terminal;
 /// The arrow keys scroll back through the history while paused; a recording given with <c>-replay</c> is shown the
 /// same way, starting at its end.
 /// </summary>
-internal sealed class TerminalApp
+internal sealed partial class TerminalApp
 {
 	private const double ReferenceCellHeight = 19;
 	private const ushort LeftKey = 0x25;
@@ -32,6 +32,13 @@ internal sealed class TerminalApp
 	private const ushort EnterKey = 0x0D;
 	private const ushort BackspaceKey = 0x08;
 	private const ushort TabKey = 0x09;
+	private const ushort UpKey = 0x26;
+	private const ushort DownKey = 0x28;
+	private const ushort MenuKey = 0x5D;
+	private const ushort F10Key = 0x79;
+
+	/// <summary>The page of the overview that is the layout screen (after the keys and the shell commands).</summary>
+	private const int LayoutPage = 2;
 
 	/// <summary>The flyout of a moment looked into: at most this wide, on a slightly lighter background than the graphs.</summary>
 	private const int FlyoutWidth = 44;
@@ -50,25 +57,25 @@ internal sealed class TerminalApp
 	private readonly PulseSettings _saved;
 	private readonly PulseSettings _settings;
 	private readonly TerminalRenderer _renderer;
-	private readonly IReadOnlyList<Graph> _graphs;
-	private readonly IReadOnlyList<KeyGroup> _keys;
-	private readonly string _hints;
+	private readonly List<Graph> _graphs;
+	private IReadOnlyList<KeyGroup> _keys;
+	private string _hints;
 	private readonly ConcurrentQueue<MetricSnapshot> _samples = new();
 	private readonly RingBuffer<MetricSnapshot> _history;
 	private readonly EventHistory _events = new();
 	private readonly AlertMonitor _alerts = new();
 	private readonly IReadOnlyList<double> _historyPresets;
-	private readonly ScopeRaster[] _rasters;
+	private ScopeRaster[] _rasters;
 	private readonly SixelEncoder _encoder = new();
 	private readonly BrailleScope _braille = new();
 	private readonly CurvePlanner _planner = new();
 	private readonly AnsiWriter _frame = new();
 	private readonly AnsiWriter _part = new();
-	private readonly byte[][] _lastPlot;
-	private readonly int[] _lastPlotLength;
-	private readonly byte[][] _lastPixels;
-	private readonly int[] _lastPixelCount;
-	private readonly string[] _lastHeader;
+	private byte[][] _lastPlot;
+	private int[] _lastPlotLength;
+	private byte[][] _lastPixels;
+	private int[] _lastPixelCount;
+	private string[] _lastHeader;
 	private readonly RenderStatistics _statistics = new();
 	private readonly List<int> _shown = [];
 	private readonly List<MouseInput> _mouse = [];
@@ -115,6 +122,17 @@ internal sealed class TerminalApp
 	private (int Row, int Column, int Rows, int Width)? _flyout;
 	private string _flyoutKey = string.Empty;
 	private readonly List<(int Row, int Column, int Rows, int Width)> _erase = [];
+	private List<MenuItem>? _menu;
+	private int _menuSelected;
+	private (int Row, int Column, int Rows, int Width)? _menuArea;
+	private string _menuKey = string.Empty;
+	private bool _leftHeld;
+	private bool _rightHeld;
+	private int _panColumn;
+	private double _panEnd = double.NaN;
+	private bool _panning;
+	private int _layoutCursor;
+	private List<int>? _soloRestore;
 	private MetricSnapshot? _focusSample;
 	private double _lastFrame;
 	private double _nextFrame;
@@ -138,7 +156,7 @@ internal sealed class TerminalApp
 		_maxFps = options.Fps ?? 30;
 		_recordPath = recording is null ? options.RecordPath : null;
 		var capacity = recording is null ? Channel.Capacity : recording.Samples.Count + 32;
-		_graphs = Graph.CreateAll(settings, saved, _info, recording is null ? 0 : capacity);
+		_graphs = [.. Graph.CreateAll(settings, saved, _info, recording is null ? 0 : capacity)];
 		_history = new RingBuffer<MetricSnapshot>(capacity);
 		_historyPresets = recording is null ? PulseSettings.HistoryPresets : ReplayPresets(recording);
 
@@ -458,14 +476,28 @@ internal sealed class TerminalApp
 
 	/// <summary>
 	/// The mouse: the wheel scrolls through the history, a click on a header folds the graph or opens it again, over a
-	/// plot a cursor shows the values of that moment in every header and what was busiest then in the panel. Pressing
-	/// the button on a plot freezes that moment, so the mouse can move away while it is read: held for a while, letting
-	/// go of the button lets go of the moment too; a short click keeps it until the next click on a plot or Esc.
+	/// plot a cursor shows the values of that moment in every header and what was busiest then. Pressing the left button
+	/// on a plot freezes that moment (held for a while, letting go lets go of it too; a short click keeps it until the
+	/// next click or Esc), dragging selects a range. The right button opens the menu of what is under the mouse, or pans
+	/// through time when it drags. While the menu is open, the mouse works the menu.
 	/// </summary>
 	private void HandleMouse(MouseInput mouse)
 	{
 		if (_help || _layout is null)
 		{
+			return;
+		}
+
+		var leftDown = mouse.LeftButton && !_leftHeld;
+		var leftUp = !mouse.LeftButton && _leftHeld;
+		var rightDown = mouse.RightButton && !_rightHeld;
+		var rightUp = !mouse.RightButton && _rightHeld;
+		_leftHeld = mouse.LeftButton;
+		_rightHeld = mouse.RightButton;
+		_mouseCell = (mouse.Column, mouse.Row);
+		if (_menu is not null)
+		{
+			HandleMenuMouse(mouse, leftDown || rightDown);
 			return;
 		}
 
@@ -485,7 +517,39 @@ internal sealed class TerminalApp
 			RedrawWhilePaused();
 		}
 
-		_mouseCell = (mouse.Column, mouse.Row);
+		// The right button: a click opens the menu of what is under the mouse, a drag pans through time.
+		if (rightDown)
+		{
+			_panColumn = mouse.Column;
+			_panEnd = ViewTime();
+			_panning = false;
+			return;
+		}
+
+		if (mouse.RightButton && mouse.Moved)
+		{
+			var columns = mouse.Column - _panColumn;
+			if (_panning || Math.Abs(columns) >= 1)
+			{
+				_panning = true;
+				var target = _panEnd - (columns * _settings.HistorySeconds / Math.Max(1, _layout.Width));
+				Scroll(ViewTime() - target);
+			}
+
+			return;
+		}
+
+		if (rightUp)
+		{
+			if (!_panning)
+			{
+				OpenMenu(mouse.Column, mouse.Row);
+			}
+
+			_panning = false;
+			return;
+		}
+
 		if (mouse.Moved)
 		{
 			// Dragging across a plot with the button down selects a range of time; a press without moving looks at a moment.
@@ -503,7 +567,7 @@ internal sealed class TerminalApp
 			return;
 		}
 
-		if (!mouse.LeftButton)
+		if (leftUp)
 		{
 			_dragFrom = double.NaN;
 			if (_dragging)
@@ -523,7 +587,7 @@ internal sealed class TerminalApp
 			return;
 		}
 
-		if (hit.Slot < 0)
+		if (!leftDown || hit.Slot < 0)
 		{
 			return;
 		}
@@ -609,7 +673,7 @@ internal sealed class TerminalApp
 	private void Relayout(ConsoleHost host)
 	{
 		_shown.Clear();
-		for (var index = 0; index < _graphs.Count; index++)
+		foreach (var index in Graph.DisplayOrder(_graphs, _settings.GraphOrder))
 		{
 			if (_graphs[index].Visible)
 			{
@@ -634,7 +698,11 @@ internal sealed class TerminalApp
 
 		_frame.Clear();
 		_frame.Background(ScopeColors.Background).Ascii("\u001b[2J");
-		if (_help)
+		if (_help && _helpPage == LayoutPage)
+		{
+			WriteLayout();
+		}
+		else if (_help)
 		{
 			WriteHelp();
 		}
@@ -679,6 +747,16 @@ internal sealed class TerminalApp
 			{
 				_frame.MoveTo(row, area.Column).Background(ScopeColors.Background).Ascii("\u001b[").Number(area.Width).Byte('X');
 			}
+
+			if (layout.PanelWidth > 0 && area.Column + area.Width > layout.PanelLeft)
+			{
+				PanelChanged();
+			}
+
+			if (area.Row + area.Rows > layout.FooterRow)
+			{
+				_lastFooter = string.Empty;
+			}
 		}
 
 		_erase.Clear();
@@ -711,6 +789,7 @@ internal sealed class TerminalApp
 
 		_headersDirty = false;
 		changed |= DrawFlyout(layout, changed);
+		changed |= DrawMenu(layout, changed);
 		changed |= AppendFooter();
 		_frame.Ascii("\u001b[?2026l");
 		if (changed)
@@ -859,7 +938,7 @@ internal sealed class TerminalApp
 	/// </summary>
 	private bool PlanGhost(int index, PlotMapping map, int columns)
 	{
-		if (_baseline?.Traces[index] is not { } ghost || ghost.Samples.Count < 2)
+		if (_baseline is null || index >= _baseline.Traces.Length || _baseline.Traces[index] is not { } ghost || ghost.Samples.Count < 2)
 		{
 			return false;
 		}
@@ -1020,7 +1099,7 @@ internal sealed class TerminalApp
 	/// </summary>
 	private bool DrawFlyout(TerminalLayout layout, bool redrawn)
 	{
-		var lines = !_settings.FocusInPanel && _focusSample is { } sample ? InfoPanel.BuildFocus(sample, FocusOn(sample)) : null;
+		var lines = !_settings.FocusInPanel && _menu is null && _focusSample is { } sample ? InfoPanel.BuildFocus(sample, FocusOn(sample)) : null;
 		var width = Math.Min(FlyoutWidth, layout.Width - 4);
 		var top = layout.Slots.Count > 0 ? layout.Slots[0].HeaderRow : 0;
 		var rows = Math.Min((lines?.Count ?? 0) + 2, layout.FooterRow - top);
@@ -1073,10 +1152,11 @@ internal sealed class TerminalApp
 		}
 	}
 
-	/// <summary>Makes the next frame erase <paramref name="area"/> and send every header and plot under it again.</summary>
+	/// <summary>Makes the next frame erase <paramref name="area"/> and send every header, plot, panel row and footer under it again.</summary>
 	private void InvalidateUnder((int Row, int Column, int Rows, int Width) area)
 	{
 		_erase.Add(area);
+
 		foreach (var slot in _layout!.Slots)
 		{
 			var last = Math.Max(slot.HeaderRow, slot.PlotRow + slot.PlotRows - 1);
@@ -1132,7 +1212,11 @@ internal sealed class TerminalApp
 		TimeSpan? uptime = sample is { UptimeSeconds: var seconds } && double.IsFinite(seconds) ? TimeSpan.FromSeconds(seconds) : null;
 		var edge = Scrolled ? ViewTime() - _settings.DisplayDelaySeconds : double.PositiveInfinity;
 		var focus = focusSample is null ? null : FocusOn(focusSample);
-		var lines = InfoPanel.Build(sample?.Details, sample, uptime, _events.Latest(InfoPanel.MaximumEvents, edge), focus);
+		var lines = InfoPanel.Arrange(
+			InfoPanel.Build(sample?.Details, sample, uptime, _events.Latest(InfoPanel.MaximumEvents, edge), focus),
+			["MOMENT", "IN VIEW", .. _settings.PanelOrder],
+			_settings.HiddenSections);
+		_panelTitles = [.. InfoPanel.Sections(lines).Select(section => section.Title).Where(title => title is not ("MOMENT" or "IN VIEW"))];
 		var extra = new List<PanelLine>();
 		if (HasSelection)
 		{
@@ -1184,6 +1268,12 @@ internal sealed class TerminalApp
 		if (_frame.Length > 0)
 		{
 			host.Write(_frame.Written);
+			if (_menu is not null)
+			{
+				// The panel was written over the menu where they meet: the menu goes on top again.
+				_menuKey = string.Empty;
+				RedrawWhilePaused();
+			}
 		}
 	}
 
@@ -1336,6 +1426,18 @@ internal sealed class TerminalApp
 
 	private void Handle(KeyPress key)
 	{
+		if (_menu is not null)
+		{
+			HandleMenuKey(key);
+			return;
+		}
+
+		if (_help && _helpPage == LayoutPage)
+		{
+			HandleLayoutKey(key);
+			return;
+		}
+
 		if (_help)
 		{
 			// ? or Tab turns the page between the keys and the shell commands; any other key goes back.
@@ -1418,9 +1520,7 @@ internal sealed class TerminalApp
 				SetInterval(PulseSettings.NextPreset(PulseSettings.IntervalPresets, _settings.IntervalSeconds));
 				break;
 			case 'K':
-				Change(settings => settings.ShowCores = !settings.ShowCores);
-				Toast(Messages.Switch("Per-core traces", _settings.ShowCores));
-				RedrawWhilePaused();
+				ToggleCores();
 				break;
 			case 'P':
 				Change(settings => settings.ShowMinMax = !settings.ShowMinMax);
@@ -1445,6 +1545,16 @@ internal sealed class TerminalApp
 			case EscapeKey when !double.IsNaN(_pinTime):
 				LetGo();
 				break;
+			case MenuKey:
+			case F10Key when key.Shift:
+				OpenMenuAtCursor();
+				break;
+			case 'L':
+				_help = true;
+				_helpPage = LayoutPage;
+				_layoutCursor = 0;
+				_layoutDirty = true;
+				break;
 			case EscapeKey when HasSelection:
 				ClearSelection();
 				break;
@@ -1464,12 +1574,7 @@ internal sealed class TerminalApp
 				ToggleBaseline();
 				break;
 			case 'S':
-				Change(settings => settings.StackCpu = !settings.StackCpu);
-				_stack = null;
-				_panelDirty = true;
-				_headersDirty = true;
-				Toast(Messages.Stacked(_settings.StackCpu));
-				RedrawWhilePaused();
+				ToggleStack();
 				break;
 			case 'D':
 				Change(settings => settings.FocusInPanel = !settings.FocusInPanel);
@@ -1596,16 +1701,7 @@ internal sealed class TerminalApp
 	/// <summary>Copies the summary of the selection (and the comparison with the baseline) to the clipboard as text.</summary>
 	private void CopySelection()
 	{
-		var text = RangePanel.Report(SummaryOf(_selectFrom, _selectTo), _baseline?.Summary, _info.Host);
-		try
-		{
-			System.Windows.Clipboard.SetText(text);
-			Toast(Messages.Copied);
-		}
-		catch (Exception ex) when (ex is System.Runtime.InteropServices.ExternalException or ThreadStateException)
-		{
-			Toast(Messages.ClipboardBusy);
-		}
+		Copy(RangePanel.Report(SummaryOf(_selectFrom, _selectTo), _baseline?.Summary, _info.Host));
 	}
 
 	/// <summary>
