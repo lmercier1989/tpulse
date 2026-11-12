@@ -1,0 +1,12 @@
+bin/
+obj/
+artifacts/
+TestResults/
+.vs/
+.idea/
+*.user
+*.suo
+
+# Ignore local configuration files
+**appsettings.Development.json
+**local.settings.json

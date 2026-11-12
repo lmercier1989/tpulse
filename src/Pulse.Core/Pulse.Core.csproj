@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Pulse.Core</RootNamespace>
+    <!-- LibraryImport, PDH buffers, DXGI vtables and the IP Helper table are read through pointers. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pulse.Core.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- System.Diagnostics.Eventing.Reader (the Windows log errors) ships with the Windows desktop runtime, which
+         tpulse needs anyway for its window. -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
+  </ItemGroup>
+
+</Project>
