@@ -88,15 +88,36 @@ public static class HeaderLine
 		}
 	}
 
-	/// <summary>The footer: key hints on the left, state (history, interval, renderer, pause, messages) on the right.</summary>
-	public static void WriteFooter(AnsiWriter output, int row, int left, int width, string hints, string status, bool highlightStatus)
+	/// <summary>
+	/// The footer: key hints on the left, state (history, interval, renderer, pause, messages) on the right. The part under
+	/// the mouse that a click works (<paramref name="hover"/>, from <see cref="FooterLine"/>) is lit like a button.
+	/// </summary>
+	public static void WriteFooter(AnsiWriter output, int row, int left, int width, string hints, string status, bool highlightStatus, (int Start, int Length)? hover = null, Rgb? hoverBackground = null)
 	{
-		status = Fit(status, width);
-		hints = Fit(hints, width - status.Length - 3);
+		(hints, status) = FitFooter(width, hints, status);
 		output.MoveTo(row, 0).Background(ScopeColors.Background).EraseLine().MoveTo(row, left)
 			.Foreground(ScopeColors.TextDim).Text(hints)
 			.MoveTo(row, left + width - status.Length)
 			.Foreground(highlightStatus ? ScopeColors.TextPrimary : ScopeColors.TextSecondary).Text(status);
+		if (hover is { } part && FooterLine(width, hints, status) is var line && part.Start >= 0 && part.Start + part.Length <= line.Length)
+		{
+			output.MoveTo(row, left + part.Start).Background(hoverBackground ?? ScopeColors.Background).Foreground(ScopeColors.TextPrimary)
+				.Text(line.AsSpan(part.Start, part.Length)).Background(ScopeColors.Background);
+		}
+	}
+
+	/// <summary>The footer as text, <paramref name="width"/> columns: what a click on it is matched against.</summary>
+	public static string FooterLine(int width, string hints, string status)
+	{
+		(hints, status) = FitFooter(width, hints, status);
+		return hints + new string(' ', Math.Max(0, width - hints.Length - status.Length)) + status;
+	}
+
+	/// <summary>The hints and the state cut to fit <paramref name="width"/> together; the state goes first.</summary>
+	private static (string Hints, string Status) FitFooter(int width, string hints, string status)
+	{
+		status = Fit(status, width);
+		return (Fit(hints, width - status.Length - 3), status);
 	}
 
 	/// <summary>Cuts <paramref name="text"/> to <paramref name="room"/> columns, ending in an ellipsis when cut.</summary>

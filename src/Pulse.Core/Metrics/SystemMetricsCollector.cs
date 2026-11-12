@@ -87,6 +87,9 @@ public sealed class SystemMetricsCollector : IDisposable
 	private readonly WindowsEventSource? _windowsEvents;
 	private readonly TopProcesses? _top;
 	private readonly LeakDetector? _leaks;
+	private readonly ListeningPorts? _ports;
+	private PortActivity? _portActivity;
+	private double _portsReadAt = double.NegativeInfinity;
 	private readonly SpikeDetector _spikes = new();
 	private readonly MarkLog _marks = new(MarkLog.DefaultPath());
 	private readonly List<PulseEvent> _newEvents = [];
@@ -224,6 +227,7 @@ public sealed class SystemMetricsCollector : IDisposable
 			{
 				_top = new TopProcesses();
 				_leaks = new LeakDetector();
+				_ports = new ListeningPorts();
 			}
 
 			var counted = Guard("network-describe", NetworkCounters.DescribeCountedInterfaces, []);
@@ -411,6 +415,7 @@ public sealed class SystemMetricsCollector : IDisposable
 		_windowsEvents?.Drain(time, wallNow, _newEvents);
 		Guard("marks", () => Drain(_marks, time, wallNow), false);
 		var leaks = SampleLeaks(records, time, wallNow);
+		var ports = SamplePorts(records, time);
 		var (tokens, sessions) = _claudeTranscripts is null
 			? (default, [])
 			: Guard("claude-transcripts", () => _claudeTranscripts.Poll(time), (default(TokenCounts), (IReadOnlyList<ClaudeSession>) []));
@@ -459,6 +464,7 @@ public sealed class SystemMetricsCollector : IDisposable
 			TopCpu = topCpu,
 			TopIo = topIo,
 			Leaks = leaks,
+			Ports = ports,
 		};
 
 		// A spike is judged on the finished sample, and its event joins the sample it happened in.
@@ -1098,6 +1104,27 @@ public sealed class SystemMetricsCollector : IDisposable
 			Log.WarnOnce("collect-leaks", "Looking for growing memory failed; it is left out.", ex);
 			return [];
 		}
+	}
+
+	/// <summary>The ports programs listen on, read again every few seconds like the other slow facts; null on another machine.</summary>
+	private PortActivity? SamplePorts(ReadOnlySpan<ProcessRecord> records, double time)
+	{
+		if (_ports is null || _snapshot is null || records.IsEmpty || time - _portsReadAt < DetailsRefreshSeconds)
+		{
+			return _portActivity;
+		}
+
+		_portsReadAt = time;
+		try
+		{
+			_portActivity = _ports.Sample(records, _snapshot);
+		}
+		catch (Exception ex)
+		{
+			Log.WarnOnce("collect-ports", "Reading the listening ports failed; the panel leaves them out.", ex);
+		}
+
+		return _portActivity;
 	}
 
 	private static T Guard<T>(string source, Func<T> read, T fallback)

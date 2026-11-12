@@ -148,6 +148,15 @@ internal sealed partial class TerminalApp
 	private double _toastUntil;
 	private string _lastFooter = string.Empty;
 
+	/// <summary>The footer as drawn last, to match a click against; see <see cref="KeyMap.FooterKeyAt"/>.</summary>
+	private string _footerLine = string.Empty;
+
+	/// <summary>The part of the footer under the mouse that a click works, lit like a button; null for none.</summary>
+	private (int Start, int Length)? _footerHover;
+
+	/// <summary>The row of the side panel under the mouse that a click opens a menu for, lit; null for none.</summary>
+	private (int Part, int Row)? _panelHover;
+
 	/// <param name="collector">The metric sources; null when a recording is played back.</param>
 	/// <param name="recording">The recording of <c>-replay</c>; null when live.</param>
 	/// <param name="saved">The remembered settings; changes made with the keys are applied here too.</param>
@@ -491,8 +500,14 @@ internal sealed partial class TerminalApp
 	/// </summary>
 	private void HandleMouse(MouseInput mouse)
 	{
-		if (_help || _layout is null)
+		if (_layout is null)
 		{
+			return;
+		}
+
+		if (_help)
+		{
+			HandleHelpMouse(mouse);
 			return;
 		}
 
@@ -515,6 +530,7 @@ internal sealed partial class TerminalApp
 			return;
 		}
 
+		UpdateHover(mouse.Column, mouse.Row);
 		var hit = _layout.HitTest(mouse.Column, mouse.Row);
 		var cursor = hit.Part == LayoutPart.Plot ? hit.Fraction : double.NaN;
 		if (!(double.IsNaN(cursor) && double.IsNaN(_cursor)) && cursor != _cursor)
@@ -595,6 +611,22 @@ internal sealed partial class TerminalApp
 			return;
 		}
 
+		// Off the graphs a click works what is under it: a row of the side panel opens its menu, a hint in the footer
+		// presses its key.
+		if (leftDown && hit.Slot < 0)
+		{
+			if (PanelHit(mouse.Column, mouse.Row) is { } row && IsClickable(row.Line))
+			{
+				OpenMenu(mouse.Column, mouse.Row);
+			}
+			else if (mouse.Row == _layout.FooterRow && KeyMap.FooterKeyAt(_footerLine, mouse.Column - _layout.Left) is { } hint)
+			{
+				PressFooterKey(hint.Key);
+			}
+
+			return;
+		}
+
 		if (!leftDown || hit.Slot < 0)
 		{
 			return;
@@ -627,6 +659,88 @@ internal sealed partial class TerminalApp
 		_panelDirty = true;
 		_headersDirty = true;
 		RedrawWhilePaused();
+	}
+
+	/// <summary>
+	/// The mouse over the overview and the layout screen: on the layout screen a click on a graph or a section shows or
+	/// hides it, like Space; on the overview a click goes back, like any key.
+	/// </summary>
+	private void HandleHelpMouse(MouseInput mouse)
+	{
+		var leftDown = mouse.LeftButton && !_leftHeld;
+		_leftHeld = mouse.LeftButton;
+		_rightHeld = mouse.RightButton;
+		if (!leftDown)
+		{
+			return;
+		}
+
+		if (_helpPage != LayoutPage)
+		{
+			_help = false;
+			_layoutDirty = true;
+			return;
+		}
+
+		if (LayoutEntryAt(mouse.Column, mouse.Row) is var index and >= 0)
+		{
+			_layoutCursor = index;
+			HandleLayoutKey(new KeyPress(' ', ' ', Shift: false, Control: false, Alt: false));
+		}
+	}
+
+	/// <summary>
+	/// Lights what a click works under the mouse: a row of the side panel that has a menu, a hint of the footer. Only the
+	/// rows and the footer that change are written again.
+	/// </summary>
+	private void UpdateHover(int column, int row)
+	{
+		var layout = _layout!;
+		(int Part, int Row)? panel = PanelHit(column, row) is { } found && IsClickable(found.Line) ? (found.Part, found.Row) : null;
+		if (panel != _panelHover)
+		{
+			foreach (var cell in new[] { _panelHover, panel })
+			{
+				if (cell is { } at && at.Part < _lastPanel.Length && at.Row < _lastPanel[at.Part].Length)
+				{
+					_lastPanel[at.Part][at.Row] = null;
+				}
+			}
+
+			_panelHover = panel;
+			_panelDirty = true;
+		}
+
+		(int Start, int Length)? footer = row == layout.FooterRow && KeyMap.FooterKeyAt(_footerLine, column - layout.Left) is { } hint ? (hint.Start, hint.Length) : null;
+		if (footer != _footerHover)
+		{
+			_footerHover = footer;
+			_lastFooter = string.Empty;
+			RedrawWhilePaused();
+		}
+	}
+
+	/// <summary>A click on a hint of the footer: the key it names, as if it was pressed.</summary>
+	private void PressFooterKey(string key)
+	{
+		if (key == "Right-click")
+		{
+			OpenMenuAtCursor();
+			return;
+		}
+
+		var press = key switch
+		{
+			"Space" => new KeyPress(' ', ' ', false, false, false),
+			"Esc" => new KeyPress(EscapeKey, '\u001b', false, false, false),
+			"Enter" => new KeyPress(EnterKey, '\r', false, false, false),
+			"Backspace" => new KeyPress(BackspaceKey, '\b', false, false, false),
+			"End" => new KeyPress(EndKey, '\0', false, false, false),
+			"Home" => new KeyPress(HomeKey, '\0', false, false, false),
+			"?" => new KeyPress(0, '?', false, false, false),
+			_ => new KeyPress(key[0], char.ToLowerInvariant(key[0]), false, false, false),
+		};
+		Handle(press);
 	}
 
 	/// <summary>The moment at <paramref name="fraction"/> of the plot width, on the sample clock.</summary>
@@ -1345,7 +1459,8 @@ internal sealed partial class TerminalApp
 				}
 
 				_lastPanel[column][row] = (line, labelWidth);
-				PanelView.WriteLine(_frame, layout.PanelTop + row, left, width, line, labelWidth);
+				var lit = _panelHover == (column, row) && IsClickable(line);
+				PanelView.WriteLine(_frame, layout.PanelTop + row, left, width, line, labelWidth, lit ? MenuSelection : null);
 			}
 		}
 
@@ -1424,15 +1539,25 @@ internal sealed partial class TerminalApp
 		}
 
 		var status = _toast ?? string.Join(" · ", parts);
-		var footer = $"{status}|{layout.Width}";
+		var hints = _settings.Compact ? string.Empty : _hints;
+		var width = layout.Columns - (2 * layout.Left);
+		var footer = $"{status}|{layout.Width}|{_footerHover}|{hints.Length}";
 		if (footer == _lastFooter)
 		{
 			return false;
 		}
 
 		_lastFooter = footer;
+		var line = HeaderLine.FooterLine(width, hints, status);
+		if (line != _footerLine)
+		{
+			// What the mouse points at moved: it is lit again from the next move.
+			_footerLine = line;
+			_footerHover = null;
+		}
+
 		// The footer spans the whole terminal, under the graphs and the info panel.
-		HeaderLine.WriteFooter(_frame, layout.FooterRow, layout.Left, layout.Columns - (2 * layout.Left), _settings.Compact ? string.Empty : _hints, status, _paused || Scrolled || _toast is not null || HasSelection || !double.IsNaN(_pinTime));
+		HeaderLine.WriteFooter(_frame, layout.FooterRow, layout.Left, width, hints, status, _paused || Scrolled || _toast is not null || HasSelection || !double.IsNaN(_pinTime), _footerHover, MenuSelection);
 		return true;
 	}
 
@@ -1645,8 +1770,8 @@ internal sealed partial class TerminalApp
 			case EnterKey when HasSelection:
 				ZoomToSelection();
 				break;
-			case BackspaceKey when _zooms.Count > 0:
-				ZoomOut();
+			case BackspaceKey:
+				Back();
 				break;
 			case 'E' when HasSelection:
 				ExportSelection();
@@ -1699,6 +1824,49 @@ internal sealed partial class TerminalApp
 		Toast(Messages.Zoomed(length));
 		_panelDirty = true;
 		RedrawWhilePaused();
+	}
+
+	/// <summary>
+	/// Backspace: one step back, whatever the screen shows (see <see cref="GoBack"/>): let go of a frozen moment, zoom out,
+	/// clear the selection, show the graphs from before "Only", go live, clear the baseline. Pressed again and again it
+	/// returns to the live picture.
+	/// </summary>
+	private void Back()
+	{
+		var held = _recording is null ? Scrolled || _paused : _playing;
+		switch (GoBack.Next(!double.IsNaN(_pinTime), _zooms.Count > 0, HasSelection, _soloRestore is not null, held, _baseline is not null))
+		{
+			case BackStep.LetGo:
+				LetGo();
+				Toast(Messages.LetGo);
+				break;
+			case BackStep.ZoomOut:
+				ZoomOut();
+				break;
+			case BackStep.ClearSelection:
+				ClearSelection();
+				Toast(Messages.SelectionCleared);
+				break;
+			case BackStep.ShowGraphs:
+				ShowAllGraphs();
+				Toast(Messages.GraphsBack);
+				break;
+			case BackStep.Live:
+				// Space does this already: back to live from looking back, resumed when paused; a recording stops playing.
+				TogglePause();
+				if (_recording is null)
+				{
+					Toast(Messages.Resumed);
+				}
+
+				break;
+			case BackStep.ClearBaseline:
+				ToggleBaseline();
+				break;
+			default:
+				Toast(Messages.NothingToGoBack);
+				break;
+		}
 	}
 
 	private void ZoomOut()

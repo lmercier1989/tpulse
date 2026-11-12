@@ -67,6 +67,9 @@ public sealed class MetricSnapshot
 	/// <summary>Processes whose memory kept growing over the last ten minutes, fastest first; empty on another machine.</summary>
 	public IReadOnlyList<LeakSuspect> Leaks { get; init; } = [];
 
+	/// <summary>The TCP ports programs listen on, refreshed every few seconds; null on another machine and in a recording.</summary>
+	public PortActivity? Ports { get; init; }
+
 	/// <summary>The wall-clock time of the sample when it is played back from a recording; null when live.</summary>
 	public DateTimeOffset? RecordedAt { get; init; }
 

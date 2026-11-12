@@ -40,6 +40,33 @@ public sealed class GitRepositoryTests : IDisposable
 	}
 
 	[Fact]
+	public void ReadHeadCommit_BranchFileOrPackedRefsOrDetached()
+	{
+		// Arrange: a git directory as git leaves it, written by hand.
+		var git = Path.Combine(_folder, ".git");
+		Directory.CreateDirectory(Path.Combine(git, "refs", "heads"));
+		File.WriteAllText(Path.Combine(git, "refs", "heads", "main"), new string('a', 40) + "\n");
+		File.WriteAllText(Path.Combine(git, "packed-refs"), $"# pack-refs with: peeled fully-peeled sorted\n{new string('b', 40)} refs/heads/release\n");
+		File.WriteAllText(Path.Combine(git, "HEAD"), "ref: refs/heads/main\n");
+		var repository = GitRepository.TryOpen(_folder)!;
+
+		// Act
+		var main = repository.ReadHeadCommit();
+		File.WriteAllText(Path.Combine(git, "HEAD"), "ref: refs/heads/release\n");
+		var release = repository.ReadHeadCommit();
+		File.WriteAllText(Path.Combine(git, "HEAD"), new string('c', 40) + "\n");
+		var detached = repository.ReadHeadCommit();
+		File.WriteAllText(Path.Combine(git, "HEAD"), "ref: refs/heads/new-branch\n");
+		var unborn = repository.ReadHeadCommit();
+
+		// Assert
+		Assert.Equal(new string('a', 40), main);
+		Assert.Equal(new string('b', 40), release);
+		Assert.Equal(new string('c', 40), detached);
+		Assert.Null(unborn);
+	}
+
+	[Fact]
 	public void ParseNumstat_AddsUpTextFiles_AndSkipsBinaries()
 	{
 		// Act

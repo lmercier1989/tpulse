@@ -62,6 +62,7 @@ public static class KeyMap
 				new("Home, End", "Oldest moment, back to live"),
 				new("H", replay ? "Zoom: 30 s up to the whole recording" : "History: 30 s, 1 min, 5 min"),
 				new("R", "Sampling: every 0.5, 1 or 2 s"),
+				new("Backspace", "Back a step: let go, zoom out, clear, live", Surface.Terminal),
 			]),
 			new("Mouse",
 			[
@@ -72,6 +73,8 @@ public static class KeyMap
 				new("Wheel", "Scroll through time"),
 				new("Right-click", "Menu for what is under the mouse", Surface.Terminal),
 				new("Right-drag", "Pan through time", Surface.Terminal),
+				new("Click a panel row", "Its menu: open, copy, follow, end", Surface.Terminal),
+				new("Click a hint", "Press its key: Esc clear, E save, H history", Surface.Terminal),
 				new("Click a title", "Fold or unfold that graph"),
 				new("Double-click", "Make that graph tall", Surface.Window),
 				new("Right-click", "Menu for that graph and moment", Surface.Window),
@@ -79,7 +82,6 @@ public static class KeyMap
 			new("Selection",
 			[
 				new("Enter", "Zoom in on the selection", Surface.Terminal),
-				new("Backspace", "Zoom out again", Surface.Terminal),
 				new("E", "Save the selection as a recording", Surface.Terminal),
 				new("Y", "Copy its summary to the clipboard", Surface.Terminal),
 				new("B", "Make it the baseline (no selection: clear)", Surface.Terminal),
@@ -118,8 +120,66 @@ public static class KeyMap
 
 	/// <summary>The footer of the terminal: the keys to start with, the rest is behind <c>?</c>.</summary>
 	public static string Hints(int graphCount, bool replay) => replay
-		? $"Space play · ← → scroll · H zoom · 1-{Processing.Graph.KeyOf(graphCount - 1)} graphs · ? help · Q quit"
-		: $"Space pause · ← → scroll · Drag select · Right-click menu · 1-{Processing.Graph.KeyOf(graphCount - 1)} graphs · ? help · Q quit";
+		? $"Space play · ← → scroll · H zoom · Backspace back · 1-{Processing.Graph.KeyOf(graphCount - 1)} graphs · ? help · Q quit"
+		: $"Space pause · ← → scroll · Drag select · Right-click menu · Backspace back · 1-{Processing.Graph.KeyOf(graphCount - 1)} graphs · ? help · Q quit";
+
+	/// <summary>The keys a hint of the footer may start with; a click on the hint presses that key.</summary>
+	private static readonly HashSet<string> FooterKeys =
+	[
+		"Space", "Esc", "Enter", "Backspace", "End", "Home", "Right-click", "?",
+		"B", "C", "D", "E", "F", "H", "I", "K", "L", "M", "N", "P", "Q", "R", "S", "Y",
+	];
+
+	/// <summary>A length of time as <see cref="Formatting.Units.Duration(double, IFormatProvider?)"/> writes it: "30 s", "5 min", "1 h 5 min".</summary>
+	private static readonly System.Text.RegularExpressions.Regex Duration = new(@"^\d+([.,]\d+)? (s|min|h|d)( \d+ (s|min|h))?$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+	/// <summary>
+	/// What a click on the footer at <paramref name="offset"/> does. Every hint there reads "Key verb" ("Esc clear", "Space
+	/// pause", "E save"), so the part under the mouse names the key it stands for; the state reads as what H changes (the
+	/// history, "5 min"), R ("every 1 s") and N ("notify"). Parts are divided by " · " and by the gap between the hints and
+	/// the state.
+	/// </summary>
+	/// <param name="line">The footer as it is drawn.</param>
+	/// <param name="offset">The column within <paramref name="line"/>.</param>
+	/// <returns>The key ("Esc", "Space", "E"; "Right-click" for the menu), and where that part starts and how long it is;
+	/// null where a click does nothing.</returns>
+	public static (string Key, int Start, int Length)? FooterKeyAt(string line, int offset)
+	{
+		for (var i = 0; i < line.Length;)
+		{
+			while (i < line.Length && line[i] is ' ' or '·')
+			{
+				i++;
+			}
+
+			var start = i;
+			while (i < line.Length && line[i] != '·' && !(line[i] == ' ' && (i + 1 == line.Length || line[i + 1] is ' ' or '·')))
+			{
+				i++;
+			}
+
+			if (offset >= start && offset < i)
+			{
+				return FooterKeyOf(line[start..i]) is { } key ? (key, start, i - start) : null;
+			}
+		}
+
+		return null;
+	}
+
+	private static string? FooterKeyOf(string part)
+	{
+		var space = part.IndexOf(' ', StringComparison.Ordinal);
+		if (space > 0 && FooterKeys.Contains(part[..space]))
+		{
+			return part[..space];
+		}
+
+		return part.StartsWith("every ", StringComparison.Ordinal) ? "R"
+			: part == "notify" ? "N"
+			: Duration.IsMatch(part) ? "H"
+			: null;
+	}
 
 	/// <summary>What a shell can run: the second page of <c>?</c>, so no option has to be remembered.</summary>
 	public static IReadOnlyList<KeyBinding> ShellCommands { get; } = OperatingSystem.IsWindows() ? WindowsShellCommands() : LinuxShellCommands();
@@ -128,6 +188,8 @@ public static class KeyMap
 	[
 		new("tpulse", "Open Pulse in a tab of its own"),
 		new("tpulse -- dotnet build", "Measure a command: marks at its start and end, what it cost after"),
+		new("tpulse -repeat 3 -- dotnet build", "Measure it three times: average, fastest, slowest"),
+		new("tpulse -runs", "The commands measured here: time, exit code, commit"),
 		new("tpulse -mark deploy started", "Put a mark on every running Pulse"),
 		new("tpulse -cpu -memory -disk", "Only these graphs (also -gpu -network -claude -git -all)"),
 		new("tpulse -process devenv", "An extra graph for a process, by name or process id"),
@@ -151,6 +213,8 @@ public static class KeyMap
 	private static KeyBinding[] LinuxShellCommands() =>
 	[
 		new("tpulse -- make -j8", "Measure a command: marks at its start and end, what it cost after"),
+		new("tpulse -repeat 3 -- make -j8", "Measure it three times: average, fastest, slowest"),
+		new("tpulse -runs", "The commands measured here: time, exit code, commit"),
 		new("tpulse -mark deploy started", "Put a mark on every running Pulse"),
 		new("tpulse -cpu -memory -disk", "Only these graphs (also -gpu -network -claude -git -all)"),
 		new("tpulse -process firefox", "An extra graph for a process, by name or process id"),

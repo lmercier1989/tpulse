@@ -55,7 +55,11 @@ public sealed class LaunchOptions
         Measure and mark
           -- <command>      Run a command in this shell and measure it: a mark at its start and end on every
                             running Pulse, and afterwards what it cost (CPU, memory, disk, network and the
-                            busiest processes). For example: tpulse -- dotnet build
+                            busiest processes), how it compares with its earlier runs in this folder, and
+                            the processes it left running. For example: tpulse -- dotnet build
+          -repeat <n> -- <command>
+                            Run and measure it n times (up to 20), then the average, fastest and slowest
+          -runs [all]       The commands measured in this folder, latest first (all: every folder)
           -mark <text>      Put a mark on every running Pulse, for example: tpulse -mark deploy started
 
         Profiles and recordings

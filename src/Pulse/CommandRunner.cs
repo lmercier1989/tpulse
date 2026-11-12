@@ -14,14 +14,68 @@ namespace Pulse;
 /// </summary>
 internal static class CommandRunner
 {
-	/// <summary>Runs <paramref name="command"/> and returns its exit code; 127 when it cannot be started.</summary>
-	public static int Run(IReadOnlyList<string> command)
+	/// <summary>
+	/// Runs <paramref name="command"/> <paramref name="repeat"/> times, stopping at the first that fails, and returns the
+	/// exit code of the last run; 127 when it cannot be started. After several runs their average, fastest and slowest
+	/// follow.
+	/// </summary>
+	public static int Run(IReadOnlyList<string> command, int repeat = 1)
 	{
 		var line = string.Join(' ', command.Select(Quote));
+
+		// Ctrl+C reaches the command too; tpulse waits for it to stop and still reports.
+		Console.CancelKeyPress += (_, e) => e.Cancel = true;
+		var durations = new List<double>();
+		var exitCode = 0;
+		for (var round = 1; round <= repeat; round++)
+		{
+			if (repeat > 1)
+			{
+				Console.Error.WriteLine($"tpulse: run {round} of {repeat}");
+			}
+
+			exitCode = RunOnce(command, line, out var seconds);
+			if (seconds is not { } taken)
+			{
+				return exitCode;
+			}
+
+			durations.Add(taken);
+			if (exitCode != 0)
+			{
+				break;
+			}
+
+			if (round < repeat)
+			{
+				Console.Error.WriteLine();
+			}
+		}
+
+		if (durations.Count > 1)
+		{
+			Console.Error.WriteLine();
+			Console.Error.WriteLine(RunHistory.Repeated(line, durations));
+		}
+
+		return exitCode;
+	}
+
+	/// <summary>
+	/// One run: marks its start and end, samples the machine every second and follows the processes it starts, then prints
+	/// what it cost, how it compares with the runs of the same command here before, and what it left running. The run is
+	/// added to the history. <paramref name="seconds"/> is null when the command could not be started.
+	/// </summary>
+	private static int RunOnce(IReadOnlyList<string> command, string line, out double? seconds)
+	{
+		seconds = null;
 		var source = Source();
+		var folder = Environment.CurrentDirectory;
+		var started = TimeProvider.System.GetUtcNow();
 		Mark("run", source, line);
 
 		var summary = new RunSummary();
+		var tree = new CommandTree();
 		using var collector = SystemMetricsCollector.Create();
 		using var sampler = new Sampler(collector, TimeSpan.FromSeconds(1), sample =>
 		{
@@ -29,16 +83,17 @@ internal static class CommandRunner
 			{
 				summary.Add(sample);
 			}
+
+			tree.Sample();
 		});
 		sampler.Start();
 
-		// Ctrl+C reaches the command too; tpulse waits for it to stop and still reports.
-		Console.CancelKeyPress += (_, e) => e.Cancel = true;
 		var watch = Stopwatch.StartNew();
 		int exitCode;
 		try
 		{
 			using var process = Process.Start(StartInfo(command)) ?? throw new Win32Exception("The process did not start.");
+			tree.Start(process.Id);
 			process.WaitForExit();
 			exitCode = process.ExitCode;
 		}
@@ -49,11 +104,43 @@ internal static class CommandRunner
 			return 127;
 		}
 
-		var seconds = Math.Max(0.1, watch.Elapsed.TotalSeconds);
+		var taken = Math.Max(0.1, watch.Elapsed.TotalSeconds);
+		seconds = taken;
+
+		// A process that is ending as the command ends is given a moment, so only what stays is named.
+		var left = tree.Running();
+		if (left.Count > 0)
+		{
+			Thread.Sleep(500);
+			left = tree.Running();
+		}
+
 		List<string> lines;
+		RunRecord record;
 		lock (summary)
 		{
-			lines = summary.Lines(line, seconds, exitCode);
+			lines = summary.Lines(line, taken, exitCode);
+			record = summary.Record(started, folder, line, taken, exitCode, RunHistory.CommitIn(folder));
+		}
+
+		var history = RunHistory.DefaultPath();
+		try
+		{
+			if (RunHistory.Compare(RunHistory.Load(history), record) is { } compared)
+			{
+				lines.Add(compared);
+			}
+
+			RunHistory.Append(history, record);
+		}
+		catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+		{
+			Console.Error.WriteLine($"tpulse: the run history could not be updated: {ex.Message}");
+		}
+
+		if (RunSummary.LeftRunning(left) is { } running)
+		{
+			lines.Add(running);
 		}
 
 		Console.Error.WriteLine();
@@ -62,8 +149,46 @@ internal static class CommandRunner
 			Console.Error.WriteLine(text);
 		}
 
-		Mark(exitCode == 0 ? "done" : "failed", source, $"{line} · {Core.Formatting.Units.Duration(seconds)} · exit code {exitCode}");
+		Mark(exitCode == 0 ? "done" : "failed", source, $"{line} · {Core.Formatting.Units.Duration(taken)} · exit code {exitCode}");
 		return exitCode;
+	}
+
+	/// <summary><c>tpulse -runs</c>: the commands measured in this folder (or, with <paramref name="everywhere"/>, in every folder), latest first.</summary>
+	public static int ListRuns(bool everywhere)
+	{
+		const int Count = 20;
+		var path = RunHistory.DefaultPath();
+		List<RunRecord> runs;
+		try
+		{
+			runs = RunHistory.Load(path);
+		}
+		catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+		{
+			Console.Error.WriteLine($"tpulse: the run history cannot be read: {ex.Message}");
+			return 1;
+		}
+
+		var folder = everywhere ? null : Environment.CurrentDirectory;
+		var lines = RunHistory.List(runs, folder, Count);
+		if (lines.Count == 0)
+		{
+			Console.WriteLine(everywhere || runs.Count == 0
+				? "No command has been measured yet. Measure one with: tpulse -- dotnet build"
+				: $"No command has been measured in {folder} yet; tpulse -runs all lists every folder.");
+			return 0;
+		}
+
+		Console.WriteLine(everywhere ? "Commands measured with tpulse --, latest first:" : $"Commands measured in {folder}, latest first:");
+		Console.WriteLine();
+		foreach (var text in lines)
+		{
+			Console.WriteLine(text);
+		}
+
+		Console.WriteLine();
+		Console.WriteLine($"Kept in {path}.{(everywhere ? string.Empty : " tpulse -runs all lists every folder.")}");
+		return 0;
 	}
 
 	/// <summary>Puts a mark on every running Pulse; a mark that cannot be written is reported, not fatal.</summary>
