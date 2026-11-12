@@ -81,6 +81,43 @@ public sealed class RunSummary
 		return lines;
 	}
 
+	/// <summary>This run as the run history keeps it: how long, the exit code, the commit, CPU, memory and disk.</summary>
+	public RunRecord Record(DateTimeOffset at, string folder, string command, double seconds, int exitCode, string? commit)
+	{
+		var measured = _samples.Skip(1).ToList();
+		var cpu = RangeStats.Of([.. measured.Select(sample => sample.CpuPercent).Where(double.IsFinite)]);
+		var memory = measured.Select(sample => sample.MemoryUsedBytes).Where(double.IsFinite).DefaultIfEmpty(double.NaN).Max();
+		return new RunRecord(at, folder, command, seconds, exitCode, commit, cpu.IsEmpty ? double.NaN : cpu.Average, memory, _read, _written);
+	}
+
+	/// <summary>
+	/// "  Left on   MSBuild ×3 410 MB, VBCSCompiler 180 MB · ids 4120 4188 4210 5532": the processes a command started that
+	/// still run after it ended, by name, most memory first, with their ids to end them by; null when it left nothing.
+	/// </summary>
+	public static string? LeftRunning(IReadOnlyList<LeftProcess> processes)
+	{
+		const int MaximumNames = 4;
+		const int MaximumIds = 8;
+		if (processes.Count == 0)
+		{
+			return null;
+		}
+
+		var culture = CultureInfo.CurrentCulture;
+		var names = processes.GroupBy(process => process.Name, StringComparer.OrdinalIgnoreCase)
+			.Select(group => (Name: group.Key, Count: group.Count(), Bytes: group.Sum(process => (double) process.Bytes)))
+			.OrderByDescending(group => group.Bytes)
+			.ToList();
+		var listed = string.Join(", ", names.Take(MaximumNames).Select(group => $"{(group.Count > 1 ? $"{group.Name} ×{group.Count}" : group.Name)} {Units.Bytes(group.Bytes, culture)}"));
+		if (names.Count > MaximumNames)
+		{
+			listed += $", {names.Count - MaximumNames} more";
+		}
+
+		var ids = string.Join(' ', processes.Take(MaximumIds).Select(process => process.Id.ToString(CultureInfo.InvariantCulture)));
+		return $"  Left on   {listed} · ids {ids}{(processes.Count > MaximumIds ? " …" : string.Empty)}";
+	}
+
 	private static double Amount(double perSecond, double seconds) => double.IsFinite(perSecond) ? Math.Max(0, perSecond) * seconds : 0;
 
 	private static string Name(ProcessLoad load) => load.Count > 1 ? $"{load.Name} ×{load.Count}" : load.Name;

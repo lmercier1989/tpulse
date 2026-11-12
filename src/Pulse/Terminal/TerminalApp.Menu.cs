@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 
+using Pulse.Core.Diagnostics;
 using Pulse.Core.Metrics;
 using Pulse.Core.Presentation;
 using Pulse.Core.Processing;
@@ -36,9 +37,11 @@ internal sealed partial class TerminalApp
 	// ---- The menu ------------------------------------------------------------------------------------
 
 	/// <summary>Opens the menu of what is at (<paramref name="column"/>, <paramref name="row"/>), just below and right of it.</summary>
-	private void OpenMenu(int column, int row)
+	private void OpenMenu(int column, int row) => ShowMenu(MenuFor(column, row), column, row);
+
+	/// <summary>Opens a menu of <paramref name="items"/> just below and right of (<paramref name="column"/>, <paramref name="row"/>).</summary>
+	private void ShowMenu(List<MenuItem> items, int column, int row)
 	{
-		var items = MenuFor(column, row);
 		CloseMenu();
 		var width = Math.Clamp(items.Max(item => item.Text.Length + item.Key.Length) + 7, 26, Math.Max(26, _columns - 2));
 		var rows = Math.Min(items.Count + 2, Math.Max(3, _layout!.FooterRow));
@@ -359,6 +362,23 @@ internal sealed partial class TerminalApp
 				yield return new(OperatingSystem.IsWindows() ? "Open in Explorer" : "Open the folder", string.Empty, () => OpenFolder(disk.Value));
 				any = true;
 				break;
+			case { Kind: PanelLinkKind.Port } port:
+				var url = $"http://localhost:{port.Port}";
+				yield return new($"Open {url}", string.Empty, () => OpenUrl(url));
+				yield return new("Copy the address", string.Empty, () => Copy(url));
+				if (CanFollow(port.Value))
+				{
+					yield return new($"Follow {port.Value} as a graph", string.Empty, () => FollowProcess(port.Value));
+				}
+
+				yield return new($"Copy the process id {port.ProcessId}", string.Empty, () => Copy(port.ProcessId.ToString(CultureInfo.InvariantCulture)));
+				if (_info.Host is null && _recording is null)
+				{
+					yield return new($"End {port.Value}…", string.Empty, () => ConfirmEnd(port.Value, port.ProcessId));
+				}
+
+				any = true;
+				break;
 		}
 
 		if (_panelTitles.Contains(section))
@@ -394,6 +414,20 @@ internal sealed partial class TerminalApp
 
 	/// <summary>The row of the side panel at (<paramref name="column"/>, <paramref name="row"/>), with the title of its section.</summary>
 	private (PanelLine Line, string Section)? PanelLineAt(int column, int row)
+		=> PanelHit(column, row) is { } hit ? (hit.Line, hit.Section) : null;
+
+	/// <summary>
+	/// Whether a left click on a row of the side panel opens its menu: a row that stands for something (a process, a port,
+	/// a repository, an event, a disk) or the title of a section.
+	/// </summary>
+	private bool IsClickable(PanelLine line)
+		=> line.Link is not null || (line.Kind == PanelLineKind.Section && _panelTitles.Contains(line.Label));
+
+	/// <summary>
+	/// The row of the side panel at (<paramref name="column"/>, <paramref name="row"/>): which of its columns, which row of
+	/// it, the line there and the title of its section.
+	/// </summary>
+	private (int Part, int Row, PanelLine Line, string Section)? PanelHit(int column, int row)
 	{
 		var layout = _layout!;
 		if (layout.PanelWidth == 0 || row < layout.PanelTop || row >= layout.PanelTop + layout.PanelRows || column < layout.PanelLeft)
@@ -420,11 +454,11 @@ internal sealed partial class TerminalApp
 		{
 			if (rows[up] is { Line.Kind: PanelLineKind.Section } title)
 			{
-				return (found.Line, title.Line.Label);
+				return (part, at, found.Line, title.Line.Label);
 			}
 		}
 
-		return (found.Line, string.Empty);
+		return (part, at, found.Line, string.Empty);
 	}
 
 	// ---- What the menu does --------------------------------------------------------------------------
@@ -555,6 +589,62 @@ internal sealed partial class TerminalApp
 		var start = new ProcessStartInfo(OperatingSystem.IsWindows() ? "explorer.exe" : "xdg-open") { UseShellExecute = false };
 		start.ArgumentList.Add(path);
 		Launch(start);
+	}
+
+	/// <summary>An address in the default browser (through xdg-open on Linux).</summary>
+	private void OpenUrl(string url)
+	{
+		if (!OperatingSystem.IsWindows())
+		{
+			var start = new ProcessStartInfo("xdg-open") { UseShellExecute = false };
+			start.ArgumentList.Add(url);
+			Launch(start);
+			return;
+		}
+
+		Launch(new ProcessStartInfo(url) { UseShellExecute = true });
+	}
+
+	/// <summary>Ending a program loses what it did not save, so the menu asks once more, at the same place.</summary>
+	private void ConfirmEnd(string name, int processId)
+	{
+		var (column, row) = _mouseCell.Column >= 0 ? _mouseCell : (_layout!.PanelLeft, _layout.PanelTop);
+		ShowMenu(
+		[
+			new($"End {name}, process {processId}", string.Empty, () => EndProcess(name, processId)),
+			new("Keep it running", "Esc", () => { }),
+		], column, row);
+	}
+
+	/// <summary>
+	/// Ends the process <paramref name="processId"/>, but only while it is still the program named <paramref name="name"/>:
+	/// a process id that was handed to another program since is left alone.
+	/// </summary>
+	private void EndProcess(string name, int processId)
+	{
+		try
+		{
+			using var process = Process.GetProcessById(processId);
+			var running = process.ProcessName;
+			if (!name.StartsWith(running, StringComparison.OrdinalIgnoreCase) && !running.StartsWith(name, StringComparison.OrdinalIgnoreCase))
+			{
+				Toast(Messages.ProcessGone(name), 4);
+				return;
+			}
+
+			process.Kill();
+			Log.Info($"Ended {name} (process {processId}) from the menu.");
+			Toast(Messages.Ended(name, processId), 4);
+			_panelDirty = true;
+		}
+		catch (ArgumentException)
+		{
+			Toast(Messages.ProcessGone(name), 4);
+		}
+		catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or NotSupportedException)
+		{
+			Toast(Messages.NotEnded(name, ex.Message), 6);
+		}
 	}
 
 	/// <summary>
@@ -748,26 +838,56 @@ internal sealed partial class TerminalApp
 		return LayoutOrder.Sort(titles, title => title, _settings.PanelOrder);
 	}
 
+	/// <summary>The width of a column of the layout screen, and the gap between its two columns.</summary>
+	private const int LayoutColumnWidth = 30;
+
+	private const int LayoutGap = 8;
+
+	/// <summary>Where the layout screen of <paramref name="count"/> entries (<paramref name="graphs"/> of them graphs) starts.</summary>
+	private (int Left, int Top) LayoutPlace(int count, int graphs)
+		=> (Math.Max(0, (_columns - ((2 * LayoutColumnWidth) + LayoutGap)) / 2), Math.Max(0, (_rows - Math.Max(graphs, count - graphs) - 7) / 2));
+
+	/// <summary>The cell of entry <paramref name="index"/> of the layout screen: graphs in the left column, sections in the right.</summary>
+	private (int Row, int Column) LayoutCell(int index, int count, int graphs)
+	{
+		var (left, top) = LayoutPlace(count, graphs);
+		var isGraph = index < graphs;
+		return (top + 3 + (isGraph ? index : index - graphs), left + (isGraph ? 0 : LayoutColumnWidth + LayoutGap));
+	}
+
+	/// <summary>The entry of the layout screen at (<paramref name="column"/>, <paramref name="row"/>); -1 for none.</summary>
+	private int LayoutEntryAt(int column, int row)
+	{
+		var entries = LayoutEntries();
+		var graphs = entries.Count(entry => entry.Graph >= 0);
+		for (var i = 0; i < entries.Count; i++)
+		{
+			var (Row, Column) = LayoutCell(i, entries.Count, graphs);
+			if (Row == row && column >= Column && column < Column + LayoutColumnWidth)
+			{
+				return i;
+			}
+		}
+
+		return -1;
+	}
+
 	/// <summary>The layout screen: the graphs left, the sections of the side panel right, the chosen row lit.</summary>
 	private void WriteLayout()
 	{
 		var entries = LayoutEntries();
 		_layoutCursor = Math.Clamp(_layoutCursor, 0, Math.Max(0, entries.Count - 1));
 		var graphs = entries.Count(entry => entry.Graph >= 0);
-		const int Width = 30;
-		const int Gap = 8;
-		var left = Math.Max(0, (_columns - ((2 * Width) + Gap)) / 2);
-		var top = Math.Max(0, (_rows - Math.Max(graphs, entries.Count - graphs) - 7) / 2);
+		const int Width = LayoutColumnWidth;
+		var (left, top) = LayoutPlace(entries.Count, graphs);
 		_frame.MoveTo(top, left).Bold().Foreground(ScopeColors.TextPrimary).Text("LAYOUT").NotBold()
-			.Foreground(ScopeColors.TextDim).Text("   ↑ ↓ choose · Shift + ↑ ↓ move · Space show or hide · Esc done");
+			.Foreground(ScopeColors.TextDim).Text("   ↑ ↓ choose · Shift + ↑ ↓ move · Space or click show or hide · Esc done");
 		_frame.MoveTo(top + 2, left).Bold().Foreground(ScopeColors.TextSecondary).Text("GRAPHS").NotBold()
-			.MoveTo(top + 2, left + Width + Gap).Bold().Text("SIDE PANEL").NotBold();
+			.MoveTo(top + 2, left + Width + LayoutGap).Bold().Text("SIDE PANEL").NotBold();
 		for (var i = 0; i < entries.Count; i++)
 		{
 			var (_, _, label, shown) = entries[i];
-			var isGraph = i < graphs;
-			var row = top + 3 + (isGraph ? i : i - graphs);
-			var column = left + (isGraph ? 0 : Width + Gap);
+			var (row, column) = LayoutCell(i, entries.Count, graphs);
 			var selected = i == _layoutCursor;
 			_frame.MoveTo(row, column).Background(selected ? MenuSelection : ScopeColors.Background).Ascii("\u001b[").Number(Width).Byte('X')
 				.Foreground(shown ? ScopeColors.For(MetricKind.Cpu) : ScopeColors.TextDim).Text(shown ? " ● " : " ○ ")
@@ -776,7 +896,7 @@ internal sealed partial class TerminalApp
 		}
 
 		_frame.MoveTo(top + 4 + Math.Max(graphs, entries.Count - graphs), left).Foreground(ScopeColors.TextDim)
-			.Text("Pulse remembers the order and what is shown. Right-click a title or a section does the same.");
+			.Text("Pulse remembers the order and what is shown. Right-click a graph title, or click a section title, for the same.");
 	}
 
 	/// <summary>The keys of the layout screen.</summary>

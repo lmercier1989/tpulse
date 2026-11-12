@@ -17,7 +17,10 @@
 
 - **Real graphics in the terminal.** Anti-aliased curves with a soft gradient underneath, drawn as Sixel pixels.
   No blocky character graphs.
-- **Everything at a glance.** Live graphs for the hardware, plus a side panel with disk space, IP addresses and system info.
+- **Everything at a glance.** Live graphs for the hardware, plus a side panel with disk space, IP addresses, the ports
+  your dev servers listen on and system info.
+- **Point and click.** Every row of the side panel and every hint in the footer is a button: click a port to open it in
+  the browser or end the program behind it, click `Esc clear` to clear. The keys still work, but you need none of them.
 - **Your process, any counter, any server.** Follow one process or any Windows performance counter as a graph of its
   own, or watch another Windows machine over the network.
 - **See what Claude does to your machine.** Tokens per minute of your Claude Code sessions on the same time axis as
@@ -25,7 +28,8 @@
 - **See what happened when.** Commits, checkouts and Windows errors are marked across every graph. Point at a spike
   to see which processes caused it, scroll back with the arrow keys, or record a run and play it back later.
 - **Measure a command.** `tpulse -- dotnet build` runs the build in your shell, marks its start and end on the
-  graphs and tells you afterwards what it cost: CPU, memory, disk, network and the busiest processes.
+  graphs and tells you afterwards what it cost: CPU, memory, disk, network and the busiest processes. It remembers
+  every run, so the next one says "24% slower" than before, and it names what the build left running.
 - **Light and private.** About 5 % of one CPU core. No admin rights, no drivers, no internet requests.
 
 ## Install
@@ -73,6 +77,9 @@ tpulse -git D:\Repos         # only the repositories in that folder
 tpulse -profile dev          # a saved set of options
 tpulse -all -record          # and write every sample to a CSV file
 tpulse -replay run.csv       # play a recording back
+tpulse -- dotnet build       # measure a command, compared with its earlier runs here
+tpulse -repeat 3 -- npm test # measure it three times: average, fastest, slowest
+tpulse -runs                 # the commands measured in this folder
 ```
 
 Typed in PowerShell or cmd, Pulse opens in a tab of its own, so your shell stays free. Add `-here` to keep it in
@@ -99,6 +106,8 @@ marked *terminal* or *window* works there only.
 | Click a title | Fold or unfold that graph |
 | Right-click | A menu for what is under the mouse: the moment, the selection, the graph, a row of the side panel |
 | Right-drag | Pan through time (*terminal*) |
+| Click a panel row | Its menu: a port, a process, a repository, an event, a disk, or a section title; lit under the mouse (*terminal*) |
+| Click a hint | A hint of the footer presses its key: `Esc clear`, `E save`, `Space pause`, and the state: `5 min` (`H`), `every 1 s` (`R`) (*terminal*) |
 | Double-click | Make that graph tall (*window*) |
 
 | Selection (*terminal*) | |
@@ -158,8 +167,8 @@ What you change with the keys is remembered for next time.
 
 The **info panel** shows the host, Windows version, uptime and processes; what Claude uses right now (the app, its
 open sessions and the tools they started) and each active session with its project and context size; your git
-repositories; the busiest processes by CPU and by I/O; the latest events; the IP address, gateway, ping, DNS and
-link speed; and a gauge per disk that turns red at 90 % full. Values you compare (loads, sizes, times) line up on
+repositories; the ports your programs listen on; the busiest processes by CPU and by I/O; the latest events; the IP
+address, gateway, ping, DNS and link speed; and a gauge per disk that turns red at 90 % full. Values you compare (loads, sizes, times) line up on
 the right. The panel grows with the terminal and splits into two columns from about 220 columns wide; when rows run
 out, the least important lines make way first. A value that stays at 90 % or more turns red.
 
@@ -223,7 +232,14 @@ ten minutes gets a pink marker on the memory graph and a row under *Growing memo
 that fills past 90 %, a git that is blocked, a critical Windows event, memory that keeps growing and a command
 measured with `tpulse --` that finishes, also while Pulse is out of sight.
 
-**Right-click.** The right button opens a menu for whatever is under the mouse, so you do not have to remember a key:
+**Ports.** The *Ports* section lists the TCP ports your programs listen on, the usual ones first (`3000`, `5000`,
+`8080`, `1433`), with the program and whether only this machine can reach it (`localhost`) or the network can too.
+So "port 5000 is already in use" has an answer at a glance. The ports of Windows itself (RPC, file sharing) are only
+counted. Click a port to open `http://localhost:5000` in the browser, copy the address or the process id, follow the
+program as a graph, or end it (Pulse asks once more). On Linux the ports of your own processes are listed.
+
+**Right-click.** The right button opens a menu for whatever is under the mouse, so you do not have to remember a key.
+On the side panel a left click opens the same menu, and a row that has one lights up under the mouse:
 
 - **A moment of a graph:** freeze it, put a mark on it, copy it (the values of every graph and the busiest processes),
   zoom in around it, or select the minute before it.
@@ -231,14 +247,20 @@ measured with `tpulse --` that finishes, also while Pulse is out of sight.
 - **A graph or its title:** hide it, make it tall or fold it, move it up or down, show only that graph and back.
 - **A process in the side panel or the flyout:** follow it as a graph of its own, from that moment on (up to three
   extra graphs, on this machine), or copy its name.
+- **A port:** open it in the browser, copy its address or the process id, follow its program as a graph, or end it.
 - **A repository:** open its folder, open a terminal tab there, copy the path. **An event:** go to its moment. **A
   disk:** open it in Explorer.
-- **A section of the side panel:** move it up or down, or hide it.
+- **A section of the side panel** (its title): move it up or down, or hide it.
+
+**The footer is a row of buttons.** Every hint in it reads as a key and what it does, and a click presses that key:
+`Space pause`, `? help`, `Esc clear` and `E save` while a range is selected, `End live` while you look back. The state
+at the right end works too: click the history (`5 min`) for the next one, `every 1 s` for the next sampling interval.
+The part under the mouse lights up.
 
 Dragging with the right button pans through time. The window has the same menu for a graph and its moment.
 
 **Your layout.** `L` opens the layout screen: the graphs and the sections of the side panel, each in its place and
-shown or hidden. Move one with `Shift` + `↑` `↓`, show or hide it with `Space`. Pulse remembers the order, also in the
+shown or hidden. Move one with `Shift` + `↑` `↓`, show or hide it with `Space` or a click. Pulse remembers the order, also in the
 window. Every section of the side panel says what it shows ("TOP CPU right now", "GIT 3 active · 12 with changes"), a
 row of figures has a dim row naming its columns, and the notes are written out ("7 files changed · ↑2 to push", "last
 commit 5 min ago").
@@ -246,7 +268,8 @@ commit 5 min ago").
 ## Measure and mark
 
 Put `tpulse --` in front of a command to measure it. The command runs in your shell as usual; every running Pulse
-gets a sky-blue mark when it starts and when it ends, and afterwards you see what it cost:
+gets a sky-blue mark when it starts and when it ends, and afterwards you see what it cost, how it compares with its
+earlier runs and what it left running:
 
 ```text
 tpulse -- dotnet build
@@ -258,10 +281,25 @@ tpulse: dotnet build took 1 min 12 s, exit code 0
   Network   received 12 MB, sent 1 MB
   Busiest   dotnet ×7 41.2%, MSBuild ×3 12.0%, VBCSCompiler 8.1%
   I/O       dotnet ×7 820 MB, MSBuild ×3 96 MB
+  Before    avg 58 s over 5 runs (fastest 52 s, last 55 s at a3f9c1e) · this run 24% slower
+  Left on   MSBuild ×3 410 MB, VBCSCompiler 180 MB · ids 4120 4188 4210 5532
 ```
 
 The exit code is the command's own, so `tpulse --` fits in a script. `tpulse -mark deploy started` puts a mark of
 your own on every running Pulse, with the folder you are in as its source.
+
+**Before** compares the run with the latest runs of the same command in the same folder that succeeded, and names
+the commit the last one ran at when it differs, so a build that got slower points at the change that did it.
+**Left on** names what the command started that still runs after it ended: build servers kept for reuse, a test host
+that hangs, a dev server started in the background. Their ids are there to end them by.
+
+```powershell
+tpulse -repeat 5 -- dotnet test  # five runs, then the average, the fastest and the slowest
+tpulse -runs                     # the runs measured in this folder: when, how long, exit code, commit
+tpulse -runs all                 # in every folder
+```
+
+Every run is kept in `%LOCALAPPDATA%\Pulse\runs.jsonl`, one JSON line each, to compare in Excel or pandas too.
 
 ## A process, a counter, another machine
 
@@ -331,7 +369,7 @@ Pulse starts with five samples:
 - **Other terminals.** Without Sixel support Pulse draws with braille characters. Prefer a separate window? Use `tpulse -window`.
 - **Sensors.** The CPU temperature is the ACPI zone Windows provides (often a board sensor), and GPU power is
   NVIDIA only. See [what is measured where](docs/hardware-metrics.md).
-- **Settings and logs** live in `%LOCALAPPDATA%\Pulse` (on Linux `~/.local/share/Pulse`).
+- **Settings, run history and logs** live in `%LOCALAPPDATA%\Pulse` (on Linux `~/.local/share/Pulse`).
 - **Not in the + menu yet?** Close all Windows Terminal windows once; it reads new profiles on start.
 
 ## For developers

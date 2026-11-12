@@ -67,6 +67,36 @@ public sealed partial class HeaderLineTests
 		Assert.DoesNotContain("533 KB/s", text);
 	}
 
+	[Fact]
+	public void FooterLine_HintsLeftStateRight_AtTheWidth()
+	{
+		// Act
+		var wide = HeaderLine.FooterLine(60, "Space pause · Q quit", "1 min · every 1 s");
+		var narrow = HeaderLine.FooterLine(30, "Space pause · ← → scroll · Q quit", "1 min · every 1 s");
+
+		// Assert
+		Assert.Equal(60, wide.Length);
+		Assert.StartsWith("Space pause · Q quit ", wide, StringComparison.Ordinal);
+		Assert.EndsWith(" 1 min · every 1 s", wide, StringComparison.Ordinal);
+		Assert.Equal(30, narrow.Length);
+		Assert.EndsWith("1 min · every 1 s", narrow, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void WriteFooter_PartUnderTheMouse_IsWrittenAgainLit()
+	{
+		// Arrange
+		var output = new AnsiWriter();
+
+		// Act
+		HeaderLine.WriteFooter(output, row: 0, left: 0, 60, "Space pause · Q quit", "1 min", highlightStatus: false, hover: (0, 11), hoverBackground: ScopeColors.White);
+
+		// Assert
+		var text = Encoding.UTF8.GetString(output.Written);
+		Assert.Equal(2, Regex.Count(text, "Space pause"));
+		Assert.Contains("\u001b[48;2;255;255;255m", text, StringComparison.Ordinal);
+	}
+
 	private static string Render(int width)
 	{
 		var output = new AnsiWriter();

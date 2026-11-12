@@ -28,6 +28,7 @@ Every source is probed once at start-up; what was found is written to the log
 | Windows errors | `EventLogWatcher` on the System and Application logs, levels Critical and Error | Every system | The same error from the same source within 5 minutes is marked once. Not read from another machine. |
 | Busiest processes | The process snapshot (CPU time, read and write transfer counts per process) | Every 64-bit system | Grouped by name like Task Manager. I/O counts files, pipes and network together; Task Manager's disk column needs a kernel trace, which needs administrator rights. On another machine: `\Process(*)\% Processor Time` and `IO Data Bytes/sec`. |
 | Network throughput | IP Helper `GetIfTable2` | Every system | Only physical interfaces that are up: Ethernet, Wi-Fi, mobile broadband. Hyper-V, WSL and Docker switches, VPN tunnels, loopback and filter drivers are left out because their traffic also crosses a physical adapter and would be counted twice. |
+| Listening ports | IP Helper `GetExtendedTcpTable` (`TCP_TABLE_OWNER_PID_LISTENER`, IPv4 and IPv6), every 5 s | Every system | What `netstat -ano` lists as LISTENING, with the process that owns each port. The ports of Windows itself (System, svchost, lsass, Hyper-V and the rest from the Windows folder) are counted, not listed. Ports served through http.sys (IIS, IIS Express) belong to System and are counted with Windows. |
 
 All counters are added by their English names (`PdhAddEnglishCounter`), so Pulse works on localized Windows
 (for example Dutch or German) where the visible counter names are translated.
@@ -79,6 +80,7 @@ The Linux build reads the kernel's own files, without root and without extra pac
 | Memory | `/proc/meminfo` | Used = MemTotal minus MemAvailable. |
 | Disk throughput and activity | `/proc/diskstats` | Whole disks with hardware behind them (`/sys/block/*/device`): partitions, loop, zram, device-mapper and RAID are left out. Activity is the busiest disk's io_ticks. |
 | Network throughput | `/proc/net/dev` | Interfaces with hardware behind them (`/sys/class/net/*/device`) that are up; bridges, containers, VPN tunnels and loopback are left out. |
+| Listening ports | `/proc/net/tcp` and `tcp6`, tied to a process by the `socket:[inode]` links in `/proc/[pid]/fd` | The ports of your own processes are listed; the ones of other users' processes (sshd, cupsd, a database run as its own user) are counted. The links are looked through only when a new port appears. |
 | Processes (Claude, `-process`, busiest, growing memory) | `/proc/[pid]/stat`, `statm`, `io` | Private memory is resident minus shared (anonymous) memory. I/O is `rchar + wchar`, readable for your own processes only. The Claude app is `claude-desktop`, a Code session `claude`. |
 | Git process folders | `/proc/[pid]/cwd` | Repositories are found three folders deep in your home folder and two deep on volumes under `/mnt`, `/media`, `/run/media`, `/srv` and `/data`. |
 | Errors | `journalctl --follow --priority=3` | What your account may read: the whole system as a member of `wheel`, `adm` or `systemd-journal`, your own messages otherwise. |

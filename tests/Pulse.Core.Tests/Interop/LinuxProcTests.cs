@@ -169,4 +169,40 @@ public sealed class LinuxProcTests
 	[InlineData("10de", 0x10DEu)]
 	[InlineData(null, 0u)]
 	public void HexId_ReadsSysfsIds(string? text, uint expected) => Assert.Equal(expected, LinuxProc.HexId(text));
+
+	[Fact]
+	public void ParseTcpListeners_ListeningOnly_WithPortLoopbackAndInode()
+	{
+		// Arrange
+		const string Text = """
+			  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+			   0: 0100007F:1388 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 41234 1 0000000000000000 100 0 0 10 0
+			   1: 00000000:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 41235 1 0000000000000000 100 0 0 10 0
+			   2: 0F02000A:C350 0100007F:1388 01 00000000:00000000 00:00000000 00000000  1000        0 41236 1 0000000000000000 20 4 30 10 -1
+			""";
+
+		// Act
+		var listeners = LinuxProc.ParseTcpListeners(Text, ipv6: false);
+
+		// Assert
+		Assert.Equal([(5000, true, 41234L), (8080, false, 41235L)], listeners);
+	}
+
+	[Fact]
+	public void ParseTcpListeners_Ipv6_LoopbackAndMappedLoopback()
+	{
+		// Arrange
+		const string Text = """
+			  sl  local_address                         remote_address                        st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+			   0: 00000000000000000000000001000000:0BB8 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 51001 1 0000000000000000 100 0 0 10 0
+			   1: 0000000000000000FFFF00000100007F:0BB9 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 51002 1 0000000000000000 100 0 0 10 0
+			   2: 00000000000000000000000000000000:0BBA 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 51003 1 0000000000000000 100 0 0 10 0
+			""";
+
+		// Act
+		var listeners = LinuxProc.ParseTcpListeners(Text, ipv6: true);
+
+		// Assert
+		Assert.Equal([(3000, true, 51001L), (3001, true, 51002L), (3002, false, 51003L)], listeners);
+	}
 }

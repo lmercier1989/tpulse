@@ -76,6 +76,10 @@ internal static partial class Native
 	[LibraryImport("iphlpapi.dll")]
 	internal static partial void FreeMibTable(nint memory);
 
+	/// <summary>The TCP sockets of this machine with the process that owns each (TCP_TABLE_OWNER_PID_*), as netstat -ano lists them.</summary>
+	[LibraryImport("iphlpapi.dll")]
+	internal static unsafe partial uint GetExtendedTcpTable(void* table, ref uint size, [MarshalAs(UnmanagedType.Bool)] bool order, uint addressFamily, int tableClass, uint reserved);
+
 	[LibraryImport("dxgi.dll")]
 	internal static partial int CreateDXGIFactory1(in Guid riid, out nint factory);
 

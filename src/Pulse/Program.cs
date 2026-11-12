@@ -31,7 +31,26 @@ internal static class Program
 				return 2;
 			}
 
-			return CommandRunner.Run(commandLine[(separator + 1)..]);
+			// tpulse -repeat 3 -- dotnet build: the same command three times, compared.
+			var repeat = 1;
+			for (var i = 0; i < separator; i++)
+			{
+				if (Profiles.IsOption(commandLine[i], "repeat", out var count)
+					&& (!int.TryParse(count ?? (i + 1 < separator ? commandLine[++i] : null), out repeat) || repeat is < 1 or > 20))
+				{
+					Console.Error.WriteLine("Option -repeat needs a number from 1 to 20, for example: tpulse -repeat 3 -- dotnet build");
+					return 2;
+				}
+			}
+
+			return CommandRunner.Run(commandLine[(separator + 1)..], repeat);
+		}
+
+		if (Array.FindIndex(commandLine, arg => Profiles.IsOption(arg, "runs", out _)) is var runsAt and >= 0)
+		{
+			Profiles.IsOption(commandLine[runsAt], "runs", out var scope);
+			scope ??= runsAt + 1 < commandLine.Length ? commandLine[runsAt + 1] : null;
+			return CommandRunner.ListRuns(string.Equals(scope, "all", StringComparison.OrdinalIgnoreCase));
 		}
 
 		if (Array.FindIndex(commandLine, arg => Profiles.IsOption(arg, "mark", out _)) is var markAt and >= 0)

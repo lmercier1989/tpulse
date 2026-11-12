@@ -451,6 +451,43 @@ internal sealed class GitRepository
 		}
 	}
 
+	/// <summary>
+	/// The commit checked out, read from the files without running git: HEAD itself when it is detached, else the branch
+	/// it names, from its own file or from packed-refs; null when it cannot be read (a branch without commits).
+	/// </summary>
+	public string? ReadHeadCommit()
+	{
+		try
+		{
+			var head = File.ReadAllText(Path.Combine(GitDirectory, "HEAD")).Trim();
+			if (!head.StartsWith("ref: ", StringComparison.Ordinal))
+			{
+				return IsCommitId(head) ? head : null;
+			}
+
+			var name = head[5..].Trim();
+			foreach (var directory in new[] { GitDirectory, CommonDirectory })
+			{
+				var file = Path.Combine(directory, name.Replace('/', Path.DirectorySeparatorChar));
+				if (File.Exists(file) && File.ReadAllText(file).Trim() is var id && IsCommitId(id))
+				{
+					return id;
+				}
+			}
+
+			var packed = Path.Combine(CommonDirectory, "packed-refs");
+			return File.Exists(packed)
+				? File.ReadLines(packed).Select(line => line.Split(' ', 2)).FirstOrDefault(parts => parts.Length == 2 && parts[1] == name && IsCommitId(parts[0]))?[0]
+				: null;
+		}
+		catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+		{
+			return null;
+		}
+
+		static bool IsCommitId(string text) => text.Length is 40 or 64 && text.All(char.IsAsciiHexDigit);
+	}
+
 	private string? ReadHeadBranch()
 	{
 		try

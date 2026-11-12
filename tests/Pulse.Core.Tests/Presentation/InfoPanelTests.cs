@@ -167,4 +167,45 @@ public sealed class InfoPanelTests
 		Assert.Equal(750, disk.UsedBytes);
 		Assert.Equal(75, disk.UsedPercent);
 	}
+
+	[Fact]
+	public void Build_ListeningPorts_ARowEachThatOpensItsMenu()
+	{
+		// Arrange
+		var sample = new MetricSnapshot
+		{
+			Time = 1,
+			Ports = new PortActivity([new ListeningPort(5000, 4242, "dotnet", LocalOnly: true), new ListeningPort(8080, 77, "node", LocalOnly: false)], SystemPorts: 9),
+		};
+
+		// Act
+		var lines = InfoPanel.Build(Details, sample, TimeSpan.FromHours(1));
+
+		// Assert
+		Assert.Contains(lines, line => line is { Kind: PanelLineKind.Section, Label: "PORTS", Text: "2 listening" });
+		var dotnet = Assert.Single(lines, line => line.Label == "5000");
+		Assert.Equal(("dotnet", "localhost"), (dotnet.Text, dotnet.Right));
+		Assert.Equal(new PanelLink(PanelLinkKind.Port, "dotnet", Port: 5000, ProcessId: 4242), dotnet.Link);
+		Assert.Contains(lines, line => line is { Label: "8080", Right: "network" });
+		Assert.Contains(lines, line => line.Kind == PanelLineKind.Note && line.Text.StartsWith("9 more held by", StringComparison.Ordinal));
+	}
+
+	[Fact]
+	public void Build_ManyPorts_ListsTheFirstAndCountsTheRest()
+	{
+		// Arrange
+		var ports = Enumerable.Range(0, InfoPanel.MaximumPorts + 2).Select(i => new ListeningPort(3000 + i, 100 + i, "node", true)).ToList();
+		var sample = new MetricSnapshot { Time = 1, Ports = new PortActivity(ports, 0) };
+
+		// Act
+		var lines = InfoPanel.Build(Details, sample, TimeSpan.FromHours(1));
+
+		// Assert
+		Assert.Equal(InfoPanel.MaximumPorts, lines.Count(line => line.Link?.Kind == PanelLinkKind.Port));
+		Assert.Contains(lines, line => line is { Kind: PanelLineKind.Note, Text: "2 more" });
+	}
+
+	[Fact]
+	public void Build_NoPortsKnown_HasNoPortsSection()
+		=> Assert.DoesNotContain(InfoPanel.Build(Details, Sample, TimeSpan.FromHours(1)), line => line.Label == "PORTS");
 }

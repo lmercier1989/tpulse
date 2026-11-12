@@ -19,13 +19,19 @@ public enum PanelLinkKind
 
 	/// <summary>A volume: open it in Explorer.</summary>
 	Disk,
+
+	/// <summary>A port a program listens on: open it in the browser, copy its address, follow or end its program.</summary>
+	Port,
 }
 
 /// <summary>The thing a row of the panel stands for.</summary>
-/// <param name="Kind">A process, a repository, an event or a disk.</param>
-/// <param name="Value">The process name, the folder of the repository, the text of the event or the root of the disk.</param>
+/// <param name="Kind">A process, a repository, an event, a disk or a port.</param>
+/// <param name="Value">The process name, the folder of the repository, the text of the event, the root of the disk, or the
+/// name of the program that listens on a port.</param>
 /// <param name="Time">The moment of an event on the sample clock; NaN for the others.</param>
-public sealed record PanelLink(PanelLinkKind Kind, string Value, double Time = double.NaN);
+/// <param name="Port">The port number of a port; 0 for the others.</param>
+/// <param name="ProcessId">The process that listens on a port; 0 for the others.</param>
+public sealed record PanelLink(PanelLinkKind Kind, string Value, double Time = double.NaN, int Port = 0, int ProcessId = 0);
 
 /// <summary>What a row of the info panel shows.</summary>
 public enum PanelLineKind
@@ -104,6 +110,9 @@ public static class InfoPanel
 	/// <summary>The busiest processes listed for a moment looked into.</summary>
 	public const int MaximumFocusTop = 6;
 
+	/// <summary>The listening ports the panel lists at most; the rest is counted.</summary>
+	public const int MaximumPorts = 6;
+
 	private const int BlankPriority = 9;
 	private const int MinimumLabelWidth = 8;
 	private const int MaximumLabelWidth = 16;
@@ -157,6 +166,11 @@ public static class InfoPanel
 		if (sample?.Git is { Repositories.Count: > 0 } git)
 		{
 			AddGit(lines, git, now);
+		}
+
+		if (sample?.Ports is { Ports.Count: > 0 } ports)
+		{
+			AddPorts(lines, ports);
 		}
 
 		// While looking into a moment, its busiest processes and events are listed at the top already.
@@ -457,6 +471,37 @@ public static class InfoPanel
 		if (listed < git.Repositories.Count)
 		{
 			lines.Add(Note(listed == 0 ? $"{git.Repositories.Count} followed, none active" : $"{git.Repositories.Count - listed} more followed", listed == 0 ? 2 : 5));
+		}
+	}
+
+	/// <summary>
+	/// The TCP ports programs listen on, the usual ones first: the port, the program, and whether only this machine can
+	/// reach it ("localhost") or the network can too. The operating system's own ports are only counted.
+	/// </summary>
+	private static void AddPorts(List<PanelLine> lines, PortActivity ports)
+	{
+		lines.Add(Blank());
+		lines.Add(Section("Ports", $"{ports.Ports.Count} listening"));
+		lines.Add(Note("program", 4, right: "reachable from"));
+		for (var index = 0; index < ports.Ports.Count && index < MaximumPorts; index++)
+		{
+			var port = ports.Ports[index];
+			var link = new PanelLink(PanelLinkKind.Port, port.Process, Port: port.Port, ProcessId: port.ProcessId);
+			lines.Add(Field(port.Port.ToString(CultureInfo.InvariantCulture), port.Process, index < 3 ? 2 : 5, emphasis: index == 0, right: port.LocalOnly ? "localhost" : "network") with { Link = link });
+		}
+
+		var more = ports.Ports.Count - Math.Min(ports.Ports.Count, MaximumPorts);
+		var owner = OperatingSystem.IsWindows() ? "Windows" : "the system";
+		var rest = (more, ports.SystemPorts) switch
+		{
+			(0, 0) => null,
+			(0, var system) => $"{system} more held by {owner}",
+			(var others, 0) => $"{others} more",
+			var (others, system) => $"{others} more · {system} held by {owner}",
+		};
+		if (rest is not null)
+		{
+			lines.Add(Note(rest, 6));
 		}
 	}
 

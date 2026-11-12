@@ -254,6 +254,44 @@ internal static class LinuxProc
 		return interfaces;
 	}
 
+	/// <summary>
+	/// The listening sockets of <c>/proc/net/tcp</c> (or <c>tcp6</c>): state 0A, with their port, whether they are bound to
+	/// a loopback address, and the inode that ties them to a process ("socket:[inode]" in <c>/proc/[pid]/fd</c>). An
+	/// address is written as 32-bit words in the byte order of the machine (little endian on every Linux .NET runs on), so
+	/// 127.0.0.1 reads "0100007F", ::1 "00000000000000000000000001000000".
+	/// </summary>
+	public static List<(int Port, bool LocalOnly, long Inode)> ParseTcpListeners(string text, bool ipv6)
+	{
+		const string Listen = "0A";
+		var listeners = new List<(int, bool, long)>();
+		Span<Range> fields = stackalloc Range[10];
+		foreach (var line in text.AsSpan().EnumerateLines())
+		{
+			if (SplitWords(line, fields) < 10 || !line[fields[3]].Equals(Listen, StringComparison.Ordinal))
+			{
+				continue;
+			}
+
+			var local = line[fields[1]];
+			var colon = local.IndexOf(':');
+			if (colon < 0
+				|| !int.TryParse(local[(colon + 1)..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var port)
+				|| !long.TryParse(line[fields[9]], NumberStyles.None, CultureInfo.InvariantCulture, out var inode))
+			{
+				continue;
+			}
+
+			var address = local[..colon];
+			var loopback = ipv6
+				? address.Equals("00000000000000000000000001000000", StringComparison.Ordinal)
+				  || (address.Length == 32 && address[..16].IndexOfAnyExcept('0') < 0 && address[16..24].Equals("FFFF0000", StringComparison.OrdinalIgnoreCase) && address[30..].Equals("7F", StringComparison.OrdinalIgnoreCase))
+				: address.Length == 8 && address[6..].Equals("7F", StringComparison.OrdinalIgnoreCase);
+			listeners.Add((port, loopback, inode));
+		}
+
+		return listeners;
+	}
+
 	/// <summary>"CachyOS" or "Ubuntu 24.04.1 LTS": PRETTY_NAME of <c>/etc/os-release</c>, else NAME and VERSION.</summary>
 	public static string? OsReleaseName(string text)
 	{

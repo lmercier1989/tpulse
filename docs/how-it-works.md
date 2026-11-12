@@ -48,7 +48,7 @@ Which metrics come from where, and what Windows cannot provide, is in [hardware-
 
 ## Extra graphs and other machines
 
-* **Up to three extra graphs.** `-process` and `-counter` add graphs after the six built-in ones, on the keys 7 to 9.
+* **Up to three extra graphs.** `-process` and `-counter` add graphs after the seven built-in ones, on the keys 8, 9 and 0.
   They live for one launch: their visibility and size are not remembered, and naming one shows only the graphs named
   on that command line.
 * **A process** is found in the same process snapshot the Claude split uses, by image name, so watching it costs no
@@ -92,6 +92,22 @@ Which metrics come from where, and what Windows cannot provide, is in [hardware-
 * **A measured command** runs as a child process in the same console (a program directly, anything else through
   `cmd /c`), while a sampler takes a sample every second; disk and network rates are added up over time. Ctrl+C goes
   to the command, and the summary still follows.
+* **What it left running.** With every sample the measured command's processes are followed in a process snapshot of
+  its own: a process belongs to the command when its parent does and was created before it, so a process still counts
+  after its parent ended (an MSBuild node started by a `dotnet` that is gone), and a process id handed to another
+  program is forgotten. When the command ends, what still runs is named, after half a second for processes that were
+  ending anyway.
+* **Run history.** Every measured run is a JSON line in `runs.jsonl`: when, where, the command, how long, the exit
+  code, the commit checked out there (read from `.git` without running git), the CPU average, the memory peak and the
+  disk traffic. A run is compared with the latest ten runs of the same command in the same folder that succeeded:
+  within 5 % reads as "about as fast". `-repeat` runs the command again until it fails or has run that often;
+  `-runs` lists the history. Past 1 MB the older half of the file goes.
+* **Listening ports** are read with the other slow facts, every 5 seconds: `GetExtendedTcpTable` on Windows,
+  `/proc/net/tcp` on Linux. A port listened on over IPv4 and IPv6 is one row, "localhost" when every one of its sockets
+  is bound to a loopback address. The ports of the system are only counted; on Windows a process counts as the system
+  when it is a known service host or runs from the Windows folder, and a service Pulse cannot look into (SQL Server,
+  Docker) is shown, because those are the ports a developer looks for. Ports the system hands out for a while
+  (from 49152, on Linux 32768) come after the ones a program chose.
 * **Scrolling back** anchors the right edge at a moment on the sample clock while sampling goes on, so no gap opens;
   the channels recompute their window and scale for the moment shown, and the headers take the sample of that moment
   from a ring buffer of samples.
@@ -148,6 +164,12 @@ Which metrics come from where, and what Windows cannot provide, is in [hardware-
   (a mark, a selection) sky blue, what Pulse found orange (a spike) or pink (a leak), an error red; the stacked bands use
   colours no marker uses. A section title is a capitalised noun with its detail as written ("SELECTION 14:32:05 ·
   1 min 5 s"); a list of figures gets a dim row naming its columns.
+* **Clicks off the graphs.** A row of the side panel that stands for something (a process, a port, a repository, an
+  event, a disk) and a section title are lit under the mouse, and a left click opens their menu, as the right button
+  does. Every hint in the footer reads "Key verb", so the part under the mouse names its key: a click presses it, and
+  the state at the right reads as what `H` (the history), `R` ("every 1 s") and `N` ("notify") change. The footer is
+  matched as it was drawn, so a hint cut off by a narrow terminal is not pressed by mistake. On the layout screen a
+  click shows or hides a graph or a section; on the overview a click goes back.
 * **Right button.** The console reports both buttons; a press and release without moving opens the menu, a move with
   the button down pans: the view moves by one column of history per cell. The menu is drawn like the flyout, after
   it, and again whenever something under it was drawn; while it is open the mouse and the keys work the menu. It
@@ -189,6 +211,7 @@ draws in the current tab instead, and outside Windows Terminal it always draws i
 | Profiles | `%LOCALAPPDATA%\Pulse\profiles.json` (created with the samples on first use) |
 | Recordings | `Documents\Pulse\pulse-<time>.csv`, unless `-record` names a file; a saved selection is `selection-pulse-<time>.csv` |
 | Marks | `%LOCALAPPDATA%\Pulse\marks.log` (starts over past 256 KB) |
+| Run history | `%LOCALAPPDATA%\Pulse\runs.jsonl`: one line per command measured with `tpulse --` (drops its older half past 1 MB) |
 | Log | `%LOCALAPPDATA%\Pulse\logs\pulse.log` (rolls over at 1 MB): the sources found, the renderer the terminal got and what drawing costs |
 
 ## Project layout
