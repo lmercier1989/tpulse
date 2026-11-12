@@ -1,0 +1,31 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:rendering="using:Pulse.Rendering"
+             x:Class="Pulse.ChannelPanel"
+             x:ClassModifier="internal">
+  <Grid RowDefinitions="Auto,*">
+    <Grid x:Name="Header" Height="26" Background="Transparent" Cursor="Hand" ColumnDefinitions="Auto,Auto,*,Auto,Auto">
+      <Ellipse x:Name="Dot" Width="6" Height="6" Margin="1,0,8,0" VerticalAlignment="Center" />
+      <TextBlock x:Name="NameText" Grid.Column="1" Classes="channelName" />
+      <TextBlock x:Name="DetailText" Grid.Column="2" Margin="12,0,12,0" Classes="detail" TextTrimming="CharacterEllipsis" />
+      <TextBlock x:Name="StatsText" Grid.Column="3" Margin="0,0,16,0" Classes="stat" />
+
+      <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
+        <Rectangle x:Name="PrimaryKey" Width="9" Height="2" Margin="0,1,6,0" VerticalAlignment="Center" />
+        <TextBlock x:Name="PrimaryLabel" Classes="valueLabel" />
+        <TextBlock x:Name="PrimaryValue" Classes="value" />
+        <Rectangle x:Name="SecondaryKey" Width="9" Height="2" Margin="16,1,6,0" VerticalAlignment="Center" />
+        <TextBlock x:Name="SecondaryLabel" Classes="valueLabel" />
+        <TextBlock x:Name="SecondaryValue" Classes="value" />
+      </StackPanel>
+    </Grid>
+
+    <Grid x:Name="PlotHost" Grid.Row="1" Background="Transparent">
+      <rendering:ScopeView x:Name="Scope" />
+      <TextBlock x:Name="ScaleText" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Top"
+                 IsHitTestVisible="False" Classes="tick" />
+      <TextBlock x:Name="MessageText" HorizontalAlignment="Center" VerticalAlignment="Center"
+                 IsHitTestVisible="False" Classes="stat" IsVisible="False" />
+    </Grid>
+  </Grid>
+</UserControl>

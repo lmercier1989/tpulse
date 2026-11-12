@@ -1,5 +1,5 @@
-using System.Windows;
-using System.Windows.Controls;
+using Avalonia.Controls;
+using Avalonia.Input;
 
 using Pulse.Core.Metrics;
 using Pulse.Core.Presentation;
@@ -34,25 +34,28 @@ internal sealed partial class ChannelPanel : UserControl
 		NameText.Text = readout.Title.ToUpperInvariant();
 		PrimaryLabel.Text = readout.PrimaryLabel;
 		SecondaryLabel.Text = readout.SecondaryLabel;
-		PrimaryKey.Visibility = Show(readout.HasSecondary);
-		PrimaryLabel.Visibility = Show(readout.PrimaryLabel.Length > 0);
-		SecondaryKey.Visibility = SecondaryLabel.Visibility = SecondaryValue.Visibility = Show(readout.HasSecondary);
+		PrimaryKey.IsVisible = readout.HasSecondary;
+		PrimaryLabel.IsVisible = readout.PrimaryLabel.Length > 0;
+		SecondaryKey.IsVisible = SecondaryLabel.IsVisible = SecondaryValue.IsVisible = readout.HasSecondary;
 		Apply(readout);
 
 		if (readout.Unavailable is not null)
 		{
 			MessageText.Text = readout.Unavailable;
-			MessageText.Visibility = Visibility.Visible;
+			MessageText.IsVisible = true;
 		}
 
-		Header.MouseLeftButtonUp += (_, _) => HeaderClicked?.Invoke(this, EventArgs.Empty);
-		PlotHost.MouseLeftButtonDown += (_, e) =>
+		Header.PointerReleased += (_, e) =>
 		{
-			if (e.ClickCount == 2)
+			if (e.InitialPressMouseButton == MouseButton.Left)
 			{
-				PlotDoubleClicked?.Invoke(this, EventArgs.Empty);
-				e.Handled = true;
+				HeaderClicked?.Invoke(this, EventArgs.Empty);
 			}
+		};
+		PlotHost.DoubleTapped += (_, e) =>
+		{
+			PlotDoubleClicked?.Invoke(this, EventArgs.Empty);
+			e.Handled = true;
 		};
 	}
 
@@ -80,20 +83,18 @@ internal sealed partial class ChannelPanel : UserControl
 
 		Header.Height = headerHeight;
 		IsPlotVisible = size != ChannelSize.Collapsed;
-		PlotHost.Visibility = Show(IsPlotVisible);
+		PlotHost.IsVisible = IsPlotVisible;
 		if (plotHeight > 0)
 		{
 			Scope.DesiredPlotHeight = plotHeight;
 		}
 
-		DetailText.Visibility = Show(!compact);
-		StatsText.Visibility = Show(!compact);
+		DetailText.IsVisible = !compact;
+		StatsText.IsVisible = !compact;
 		DesignedHeight = headerHeight + plotHeight;
 	}
 
 	public void Present(MetricSnapshot sample, bool showStats) => Apply(ChannelText.Describe(_channel, _info, sample, showStats));
-
-	private static Visibility Show(bool visible) => visible ? Visibility.Visible : Visibility.Collapsed;
 
 	private static void Set(TextBlock block, string text)
 	{

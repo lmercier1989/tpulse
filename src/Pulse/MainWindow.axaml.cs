@@ -1,18 +1,18 @@
-using System.ComponentModel;
 using System.Globalization;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Animation;
-using System.Windows.Threading;
+
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Documents;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Media;
+using Avalonia.Threading;
 
 using Pulse.Core.Diagnostics;
 using Pulse.Core.Metrics;
 using Pulse.Core.Presentation;
 using Pulse.Core.Processing;
 using Pulse.Core.Settings;
-using Pulse.Interop;
 using Pulse.Rendering;
 
 namespace Pulse;
@@ -20,7 +20,7 @@ namespace Pulse;
 /// <summary>
 /// The instrument window: stacks the graphs, owns the sampling loop and the render loop, and handles the
 /// keyboard, mouse and context menu. Samples arrive on a pool thread and are applied on the UI thread;
-/// frames are driven by <see cref="CompositionTarget.Rendering"/> and stop while paused or minimized.
+/// frames are driven by <see cref="TopLevel.RequestAnimationFrame"/> and stop while paused or minimized.
 /// </summary>
 public partial class MainWindow : Window
 {
@@ -46,7 +46,23 @@ public partial class MainWindow : Window
 	private bool _closing;
 	private double _frozenTime;
 	private double _lastFrame;
-	private TimeSpan _lastRenderingTime;
+	private PixelRect? _normalBounds;
+	private (int Index, double Fraction)? _pointer;
+	private bool _tipFrozen;
+
+	/// <summary>For the XAML previewer only.</summary>
+	public MainWindow()
+	{
+		InitializeComponent();
+		_collector = null!;
+		_store = null!;
+		_saved = _settings = new PulseSettings();
+		_graphs = [];
+		_panels = [];
+		_keys = [];
+		_sampler = null!;
+		_toastTimer = new DispatcherTimer();
+	}
 
 	/// <param name="collector">The metric sources; disposed when the window closes.</param>
 	/// <param name="store">Where the remembered settings are written on close.</param>
@@ -74,16 +90,17 @@ public partial class MainWindow : Window
 		for (var i = 0; i < _panels.Length; i++)
 		{
 			_panels[i].Scope.ShowEvents(_events);
-			AttachTooltip(_panels[i], _graphs[i]);
+			AttachTooltip(_panels[i], _graphs[i], i);
 		}
 
 		if (settings.Notify)
 		{
 			_notifier = new Notifier();
 		}
+
 		_keys = KeyMap.For(Surface.Window, [.. _graphs.Skip(MetricKinds.Builtin.Count).Select(graph => ChannelText.TitleOf(graph.Channel))]);
 		_sampler = new Sampler(collector, TimeSpan.FromSeconds(settings.IntervalSeconds), OnSampleCollected);
-		_toastTimer = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher) { Interval = TimeSpan.FromSeconds(1.8) };
+		_toastTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.8) };
 		_toastTimer.Tick += (_, _) => HideToast();
 
 		BuildHelp();
@@ -91,73 +108,36 @@ public partial class MainWindow : Window
 		BuildLayout();
 		RestoreWindowBounds();
 
-		Root.ContextMenu = new ContextMenu();
-		Root.ContextMenuOpening += OnContextMenuOpening;
-		HelpOverlay.MouseLeftButtonUp += (_, _) => SetHelpVisible(false);
+		var menu = new ContextMenu();
+		menu.Opening += (_, _) => FillMenu(menu);
+		Root.ContextMenu = menu;
+		HelpOverlay.PointerReleased += (_, _) => SetHelpVisible(false);
+		AddHandler(KeyDownEvent, OnKeyDownTunnel, RoutingStrategies.Tunnel);
+		AddHandler(PointerWheelChangedEvent, OnWheelTunnel, RoutingStrategies.Tunnel);
 		SizeChanged += (_, _) => RenderStillFrameLater();
+		PositionChanged += (_, _) => RememberNormalBounds();
+		Resized += (_, _) => RememberNormalBounds();
+		Opened += OnOpened;
+		Deactivated += (_, _) => HideTip();
 	}
 
-	protected override void OnSourceInitialized(EventArgs e)
+	protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
 	{
-		base.OnSourceInitialized(e);
-		DwmStyling.Apply(this);
-	}
-
-	protected override void OnContentRendered(EventArgs e)
-	{
-		base.OnContentRendered(e);
-		if (_started)
+		base.OnPropertyChanged(change);
+		if (change.Property == WindowStateProperty)
 		{
-			return;
-		}
-
-		_started = true;
-		SizeToContent = SizeToContent.Manual;
-		_sampler.Start();
-		StartRendering();
-		if (_saved.Window is null)
-		{
-			ShowToast("F1 help");
-		}
-
-		Log.Info($"Window open: history {_settings.HistorySeconds} s, interval {_settings.IntervalSeconds} s, {_settings.TargetFps} fps.");
-	}
-
-	protected override void OnStateChanged(EventArgs e)
-	{
-		base.OnStateChanged(e);
-		if (WindowState == WindowState.Minimized)
-		{
-			StopRendering();
-		}
-		else
-		{
-			StartRendering();
+			if (WindowState == WindowState.Minimized)
+			{
+				StopRendering();
+			}
+			else
+			{
+				StartRendering();
+			}
 		}
 	}
 
-	protected override void OnPreviewKeyDown(KeyEventArgs e)
-	{
-		base.OnPreviewKeyDown(e);
-		if (!e.Handled)
-		{
-			e.Handled = HandleKey(e.Key == Key.System ? e.SystemKey : e.Key, Keyboard.Modifiers);
-		}
-	}
-
-	/// <summary>The mouse wheel scrolls through the history, like the arrow keys: away from you goes back in time.</summary>
-	protected override void OnPreviewMouseWheel(MouseWheelEventArgs e)
-	{
-		base.OnPreviewMouseWheel(e);
-		// Over the overview the wheel scrolls the overview.
-		if (!e.Handled && e.Delta != 0 && HelpOverlay.Visibility != Visibility.Visible)
-		{
-			Scroll(Math.Sign(e.Delta) * _settings.HistorySeconds / 8);
-			e.Handled = true;
-		}
-	}
-
-	protected override void OnClosing(CancelEventArgs e)
+	protected override void OnClosing(WindowClosingEventArgs e)
 	{
 		base.OnClosing(e);
 		if (e.Cancel)
@@ -189,11 +169,81 @@ public partial class MainWindow : Window
 		_ => null,
 	};
 
-	private static MenuItem MenuEntry(string header, string? gesture, Action action, bool isChecked = false)
+	/// <summary>A menu row with its shortcut in a dimmed column at the right, and a check mark when it is a switch that is on.</summary>
+	private static MenuItem MenuEntry(string header, string? gesture, Action action, bool? isChecked = null)
 	{
-		var item = new MenuItem { Header = header, InputGestureText = gesture ?? string.Empty, IsChecked = isChecked };
+		var content = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), MinWidth = 180 };
+		content.Children.Add(new TextBlock { Text = header });
+		if (!string.IsNullOrEmpty(gesture))
+		{
+			var shortcut = new TextBlock { Text = gesture, Margin = new Thickness(28, 0, 0, 0), Opacity = 0.5 };
+			Grid.SetColumn(shortcut, 1);
+			content.Children.Add(shortcut);
+		}
+
+		var item = new MenuItem { Header = content };
+		if (isChecked is { } on)
+		{
+			item.ToggleType = MenuItemToggleType.CheckBox;
+			item.IsChecked = on;
+		}
+
 		item.Click += (_, _) => action();
 		return item;
+	}
+
+	private void OnOpened(object? sender, EventArgs e)
+	{
+		if (_started)
+		{
+			return;
+		}
+
+		_started = true;
+		if (OperatingSystem.IsWindows() && TryGetPlatformHandle() is { } handle)
+		{
+			StyleTitleBar(handle.Handle);
+		}
+
+		// The height fits the graphs once; after that the window keeps the size it is given.
+		Dispatcher.UIThread.Post(() => SizeToContent = SizeToContent.Manual, DispatcherPriority.Loaded);
+		_sampler.Start();
+		StartRendering();
+		if (_saved.Window is null)
+		{
+			ShowToast("F1 help");
+		}
+
+		Log.Info($"Window open: history {_settings.HistorySeconds} s, interval {_settings.IntervalSeconds} s, {_settings.TargetFps} fps.");
+	}
+
+	/// <summary>Paints the native title bar dark on Windows; elsewhere the window manager draws it.</summary>
+	private static void StyleTitleBar(nint handle)
+	{
+#if WINDOWS
+		Interop.DwmStyling.Apply(handle);
+#else
+		_ = handle;
+#endif
+	}
+
+	private void OnKeyDownTunnel(object? sender, KeyEventArgs e)
+	{
+		if (!e.Handled)
+		{
+			e.Handled = HandleKey(e.Key, e.KeyModifiers, e.KeySymbol);
+		}
+	}
+
+	/// <summary>The mouse wheel scrolls through the history, like the arrow keys: away from you goes back in time.</summary>
+	private void OnWheelTunnel(object? sender, PointerWheelEventArgs e)
+	{
+		// Over the overview the wheel scrolls the overview.
+		if (!e.Handled && e.Delta.Y != 0 && !HelpOverlay.IsVisible)
+		{
+			Scroll(Math.Sign(e.Delta.Y) * _settings.HistorySeconds / 8);
+			e.Handled = true;
+		}
 	}
 
 	private ChannelPanel CreatePanel(Graph graph)
@@ -206,13 +256,7 @@ public partial class MainWindow : Window
 
 	// ---- Samples ---------------------------------------------------------------------------------------
 
-	private void OnSampleCollected(MetricSnapshot snapshot)
-	{
-		if (!Dispatcher.HasShutdownStarted)
-		{
-			Dispatcher.InvokeAsync(() => OnSample(snapshot), DispatcherPriority.Normal);
-		}
-	}
+	private void OnSampleCollected(MetricSnapshot snapshot) => Dispatcher.UIThread.Post(() => OnSample(snapshot));
 
 	private void OnSample(MetricSnapshot sample)
 	{
@@ -301,94 +345,83 @@ public partial class MainWindow : Window
 	/// <summary>
 	/// A tooltip over every graph that follows the mouse: the moment under it, the values of that graph then, the busiest
 	/// processes of that moment and the events around it. Holding the left button down freezes it where it is, so it can
-	/// be read at leisure; letting go makes it follow the mouse again. A popup of its own rather than a WPF tooltip,
-	/// because the tooltip service closes a tooltip on every mouse down.
+	/// be read at leisure; letting go makes it follow the mouse again.
 	/// </summary>
-	private void AttachTooltip(ChannelPanel panel, Graph graph)
+	private void AttachTooltip(ChannelPanel panel, Graph graph, int index)
 	{
 		var scope = panel.Scope;
-		var text = new TextBlock { FontFamily = new FontFamily("Consolas"), FontSize = 12, Foreground = new SolidColorBrush(Color.FromRgb(0xE4, 0xE8, 0xEE)) };
-		var held = new TextBlock { FontFamily = text.FontFamily, FontSize = 11, Foreground = new SolidColorBrush(Palette.TitleText), Margin = new Thickness(0, 6, 0, 0), Text = "held · let go to follow the mouse", Visibility = Visibility.Collapsed };
-		var tip = new System.Windows.Controls.Primitives.Popup
-		{
-			Child = new Border
-			{
-				Background = new SolidColorBrush(Color.FromRgb(0x12, 0x15, 0x1B)),
-				BorderBrush = new SolidColorBrush(Palette.WindowBorder),
-				BorderThickness = new Thickness(1),
-				Padding = new Thickness(10, 8, 10, 8),
-				Child = new StackPanel { Children = { text, held } },
-				IsHitTestVisible = false,
-			},
-			PlacementTarget = scope,
-			Placement = System.Windows.Controls.Primitives.PlacementMode.Relative,
-			AllowsTransparency = true,
-		};
-		var frozen = false;
 
-		void Follow(Point point)
+		void Follow(PointerEventArgs e)
 		{
-			text.Text = TooltipText(graph, point.X / Math.Max(1, scope.ActualWidth));
-			tip.HorizontalOffset = point.X + 16;
-			tip.VerticalOffset = point.Y + 16;
-			tip.IsOpen = true;
+			var point = e.GetPosition(scope);
+			var fraction = Math.Clamp(point.X / Math.Max(1, scope.Bounds.Width), 0, 1);
+			_pointer = (index, fraction);
+			TipText.Text = TooltipText(graph, fraction);
+			PlaceTip(e.GetPosition(Root));
 		}
 
-		void Release(Point point)
+		scope.PointerMoved += (_, e) =>
 		{
-			frozen = false;
-			held.Visibility = Visibility.Collapsed;
-			if (point.X >= 0 && point.Y >= 0 && point.X <= scope.ActualWidth && point.Y <= scope.ActualHeight)
+			if (!_tipFrozen)
 			{
-				Follow(point);
+				Follow(e);
+			}
+		};
+		scope.PointerExited += (_, _) =>
+		{
+			if (!_tipFrozen)
+			{
+				HideTip();
+			}
+		};
+		scope.PointerPressed += (_, e) =>
+		{
+			if (e.GetCurrentPoint(scope).Properties.IsLeftButtonPressed && e.ClickCount == 1 && Tip.IsVisible)
+			{
+				e.Pointer.Capture(scope);
+				_tipFrozen = true;
+				TipHeld.IsVisible = true;
+			}
+		};
+		scope.PointerReleased += (_, e) =>
+		{
+			if (!_tipFrozen)
+			{
+				return;
+			}
+
+			e.Pointer.Capture(null);
+			_tipFrozen = false;
+			TipHeld.IsVisible = false;
+			var point = e.GetPosition(scope);
+			if (point.X >= 0 && point.Y >= 0 && point.X <= scope.Bounds.Width && point.Y <= scope.Bounds.Height)
+			{
+				Follow(e);
 			}
 			else
 			{
-				tip.IsOpen = false;
+				HideTip();
 			}
-		}
+		};
+	}
 
-		scope.MouseMove += (_, e) =>
-		{
-			if (!frozen)
-			{
-				Follow(e.GetPosition(scope));
-			}
-		};
-		scope.MouseLeave += (_, _) =>
-		{
-			if (!frozen)
-			{
-				tip.IsOpen = false;
-			}
-		};
-		scope.MouseLeftButtonDown += (_, e) =>
-		{
-			if (e.ClickCount == 1 && tip.IsOpen && scope.CaptureMouse())
-			{
-				frozen = true;
-				held.Visibility = Visibility.Visible;
-			}
-		};
-		scope.MouseLeftButtonUp += (_, e) =>
-		{
-			if (frozen)
-			{
-				scope.ReleaseMouseCapture();
-			}
-		};
-		scope.LostMouseCapture += (_, _) =>
-		{
-			if (frozen)
-			{
-				Release(Mouse.GetPosition(scope));
-			}
-		};
-		Deactivated += (_, _) =>
-		{
-			scope.ReleaseMouseCapture();
-			tip.IsOpen = false;
-		};
+	/// <summary>Shows the tooltip next to <paramref name="point"/> (in the window), inside the window.</summary>
+	private void PlaceTip(Point point)
+	{
+		Tip.IsVisible = true;
+		Tip.Measure(Size.Infinity);
+		var size = Tip.DesiredSize;
+		var x = point.X + 16 + size.Width <= Root.Bounds.Width ? point.X + 16 : Math.Max(0, point.X - 16 - size.Width);
+		var y = point.Y + 16 + size.Height <= Root.Bounds.Height ? point.Y + 16 : Math.Max(0, Root.Bounds.Height - size.Height);
+		Canvas.SetLeft(Tip, x);
+		Canvas.SetTop(Tip, y);
+	}
+
+	private void HideTip()
+	{
+		_tipFrozen = false;
+		TipHeld.IsVisible = false;
+		Tip.IsVisible = false;
 	}
 
 	/// <summary>"CPU 63% claude 12%", then the moment as the terminal's flyout shows it: busiest then, events, in view.</summary>
@@ -491,32 +524,19 @@ public partial class MainWindow : Window
 
 		_rendering = true;
 		_lastFrame = MonotonicClock.Now;
-		CompositionTarget.Rendering += OnRendering;
+		RequestAnimationFrame(OnFrame);
 	}
 
-	private void StopRendering()
+	private void StopRendering() => _rendering = false;
+
+	private void OnFrame(TimeSpan time)
 	{
 		if (!_rendering)
 		{
 			return;
 		}
 
-		_rendering = false;
-		CompositionTarget.Rendering -= OnRendering;
-	}
-
-	private void OnRendering(object? sender, EventArgs e)
-	{
-		// Rendering can fire more than once per frame; one update per presented frame is enough.
-		if (e is RenderingEventArgs args)
-		{
-			if (args.RenderingTime == _lastRenderingTime)
-			{
-				return;
-			}
-
-			_lastRenderingTime = args.RenderingTime;
-		}
+		RequestAnimationFrame(OnFrame);
 
 		// Skipping whole vsync intervals keeps the frame pacing even on 120/144 Hz displays.
 		var now = MonotonicClock.Now;
@@ -549,7 +569,7 @@ public partial class MainWindow : Window
 			return;
 		}
 
-		Dispatcher.InvokeAsync(
+		Dispatcher.UIThread.Post(
 			() =>
 			{
 				if (!_rendering && !_closing)
@@ -592,7 +612,7 @@ public partial class MainWindow : Window
 			ChannelHost.Children.Add(panel);
 		}
 
-		EmptyHint.Visibility = visible.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+		EmptyHint.IsVisible = visible.Count == 0;
 		PresentAll();
 		RenderStillFrameLater();
 	}
@@ -606,9 +626,23 @@ public partial class MainWindow : Window
 		}
 
 		SizeToContent = SizeToContent.Height;
-		Dispatcher.InvokeAsync(() => SizeToContent = SizeToContent.Manual, DispatcherPriority.Loaded);
+		Dispatcher.UIThread.Post(() => SizeToContent = SizeToContent.Manual, DispatcherPriority.Loaded);
 	}
 
+	/// <summary>Keeps the bounds of the window while it is neither maximized nor minimized, to remember on close.</summary>
+	private void RememberNormalBounds()
+	{
+		if (WindowState == WindowState.Normal && _started)
+		{
+			var scaling = DesktopScaling;
+			_normalBounds = new PixelRect(Position, PixelSize.FromSize(ClientSize, scaling));
+		}
+	}
+
+	/// <summary>
+	/// Puts the window where it was. Positions are remembered in device-independent units, so a monitor with another
+	/// scale factor still gets the window at the same place.
+	/// </summary>
 	private void RestoreWindowBounds()
 	{
 		if (_settings.Window is not { } bounds)
@@ -617,20 +651,16 @@ public partial class MainWindow : Window
 			return;
 		}
 
-		var desktop = new Rect(
-			SystemParameters.VirtualScreenLeft,
-			SystemParameters.VirtualScreenTop,
-			SystemParameters.VirtualScreenWidth,
-			SystemParameters.VirtualScreenHeight);
-		if (!desktop.IntersectsWith(new Rect(bounds.Left, bounds.Top, bounds.Width, 32)))
+		var screens = Screens.All;
+		var screen = screens.FirstOrDefault(candidate => Overlaps(candidate.WorkingArea, candidate.Scaling));
+		if (screen is null)
 		{
 			WindowStartupLocation = WindowStartupLocation.CenterScreen;
 			return;
 		}
 
 		WindowStartupLocation = WindowStartupLocation.Manual;
-		Left = bounds.Left;
-		Top = bounds.Top;
+		Position = new PixelPoint((int) Math.Round(bounds.Left * screen.Scaling), (int) Math.Round(bounds.Top * screen.Scaling));
 		Width = Math.Max(bounds.Width, MinWidth);
 		if (!_layoutFromCommandLine && bounds.Height > 0)
 		{
@@ -642,23 +672,28 @@ public partial class MainWindow : Window
 		{
 			WindowState = WindowState.Maximized;
 		}
+
+		bool Overlaps(PixelRect area, double scaling)
+			=> area.Intersects(new PixelRect((int) (bounds.Left * scaling), (int) (bounds.Top * scaling), (int) (bounds.Width * scaling), (int) (32 * scaling)));
 	}
 
 	private void SaveWindowBounds()
 	{
-		var bounds = WindowState == WindowState.Normal ? new Rect(Left, Top, ActualWidth, ActualHeight) : RestoreBounds;
-		if (bounds.IsEmpty)
+		RememberNormalBounds();
+		if (_normalBounds is not { } bounds || bounds.Width <= 0)
 		{
 			return;
 		}
 
+		var scaling = DesktopScaling > 0 ? DesktopScaling : 1;
+
 		// A height chosen for graphs picked on the command line does not suit the remembered layout.
-		var height = _layoutFromCommandLine ? _saved.Window?.Height ?? 0 : bounds.Height;
+		var height = _layoutFromCommandLine ? _saved.Window?.Height ?? 0 : bounds.Height / scaling;
 		_saved.Window = new WindowBounds
 		{
-			Left = bounds.Left,
-			Top = bounds.Top,
-			Width = bounds.Width,
+			Left = bounds.X / scaling,
+			Top = bounds.Y / scaling,
+			Width = bounds.Width / scaling,
 			Height = height,
 			Maximized = WindowState == WindowState.Maximized,
 		};
@@ -666,15 +701,15 @@ public partial class MainWindow : Window
 
 	// ---- Commands --------------------------------------------------------------------------------------
 
-	private bool HandleKey(Key key, ModifierKeys modifiers)
+	private bool HandleKey(Key key, KeyModifiers modifiers, string? symbol)
 	{
-		if (HelpOverlay.Visibility == Visibility.Visible && key is Key.Escape or Key.F1)
+		if (HelpOverlay.IsVisible && key is Key.Escape or Key.F1)
 		{
 			SetHelpVisible(false);
 			return true;
 		}
 
-		if (modifiers.HasFlag(ModifierKeys.Control))
+		if (modifiers.HasFlag(KeyModifiers.Control))
 		{
 			if (key is Key.Q or Key.W)
 			{
@@ -685,14 +720,14 @@ public partial class MainWindow : Window
 			return false;
 		}
 
-		if (modifiers.HasFlag(ModifierKeys.Alt))
+		if (modifiers.HasFlag(KeyModifiers.Alt))
 		{
 			return false;
 		}
 
 		if (DigitIndex(key) is { } index && index < _graphs.Count)
 		{
-			if (modifiers.HasFlag(ModifierKeys.Shift))
+			if (modifiers.HasFlag(KeyModifiers.Shift))
 			{
 				SetSize(_graphs[index], _graphs[index].NextSize());
 			}
@@ -701,6 +736,12 @@ public partial class MainWindow : Window
 				ToggleVisible(_graphs[index]);
 			}
 
+			return true;
+		}
+
+		if (key is Key.F1 or Key.OemQuestion || symbol == "?")
+		{
+			SetHelpVisible(!HelpOverlay.IsVisible);
 			return true;
 		}
 
@@ -734,10 +775,10 @@ public partial class MainWindow : Window
 				ToggleNotifications();
 				return true;
 			case Key.Left:
-				Scroll(modifiers.HasFlag(ModifierKeys.Shift) ? _settings.HistorySeconds : _settings.HistorySeconds / 4);
+				Scroll(modifiers.HasFlag(KeyModifiers.Shift) ? _settings.HistorySeconds : _settings.HistorySeconds / 4);
 				return true;
 			case Key.Right:
-				Scroll(-(modifiers.HasFlag(ModifierKeys.Shift) ? _settings.HistorySeconds : _settings.HistorySeconds / 4));
+				Scroll(-(modifiers.HasFlag(KeyModifiers.Shift) ? _settings.HistorySeconds : _settings.HistorySeconds / 4));
 				return true;
 			case Key.Home:
 				Scroll(double.PositiveInfinity);
@@ -747,9 +788,6 @@ public partial class MainWindow : Window
 				return true;
 			case Key.F:
 				ToggleFrameRate();
-				return true;
-			case Key.F1 or Key.OemQuestion:
-				SetHelpVisible(HelpOverlay.Visibility != Visibility.Visible);
 				return true;
 			default:
 				return false;
@@ -899,7 +937,7 @@ public partial class MainWindow : Window
 	{
 		ToastText.Text = text;
 		_toastTimer.Stop();
-		Toast.BeginAnimation(OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(120)));
+		Toast.Opacity = 1;
 		if (!sticky)
 		{
 			_toastTimer.Start();
@@ -909,10 +947,10 @@ public partial class MainWindow : Window
 	private void HideToast()
 	{
 		_toastTimer.Stop();
-		Toast.BeginAnimation(OpacityProperty, new DoubleAnimation(0, TimeSpan.FromMilliseconds(320)));
+		Toast.Opacity = 0;
 	}
 
-	private void SetHelpVisible(bool visible) => HelpOverlay.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+	private void SetHelpVisible(bool visible) => HelpOverlay.IsVisible = visible;
 
 	/// <summary>The overview of <see cref="KeyMap"/>: one block per group, side by side, every marker in its own colour.</summary>
 	private void BuildHelp()
@@ -920,22 +958,26 @@ public partial class MainWindow : Window
 		foreach (var group in _keys)
 		{
 			var block = new StackPanel { Width = 360, Margin = new Thickness(0, 0, 32, 20) };
-			block.Children.Add(new TextBlock { Text = group.Title.ToUpperInvariant(), Style = (Style) FindResource("ChannelNameText"), Margin = new Thickness(0, 0, 0, 6) });
-			var grid = new Grid();
-			grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
-			grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+			var title = new TextBlock { Text = group.Title.ToUpperInvariant(), Margin = new Thickness(0, 0, 0, 6) };
+			title.Classes.Add("channelName");
+			block.Children.Add(title);
+			var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("110,*") };
 			for (var row = 0; row < group.Rows.Count; row++)
 			{
 				var binding = group.Rows[row];
-				grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-				var keys = new TextBlock { Style = (Style) FindResource("ChannelNameText"), Margin = new Thickness(0, 2, 12, 2) };
+				grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+				var keys = new TextBlock { Margin = new Thickness(0, 2, 12, 2) };
+				keys.Classes.Add("channelName");
+				var inlines = new InlineCollection();
 				if (binding.Marker is { } kind)
 				{
-					keys.Inlines.Add(new System.Windows.Documents.Run("│ ") { Foreground = new SolidColorBrush(Palette.MarkerOf(kind)) });
+					inlines.Add(new Run("│ ") { Foreground = new SolidColorBrush(Palette.MarkerOf(kind)) });
 				}
 
-				keys.Inlines.Add(new System.Windows.Documents.Run(binding.Keys));
-				var action = new TextBlock { Text = binding.Action, Style = (Style) FindResource("DetailText"), Margin = new Thickness(0, 2, 0, 2), TextWrapping = TextWrapping.Wrap };
+				inlines.Add(new Run(binding.Keys));
+				keys.Inlines = inlines;
+				var action = new TextBlock { Text = binding.Action, Margin = new Thickness(0, 2, 0, 2), TextWrapping = TextWrapping.Wrap };
+				action.Classes.Add("detail");
 				Grid.SetRow(keys, row);
 				Grid.SetRow(action, row);
 				Grid.SetColumn(action, 1);
@@ -956,7 +998,7 @@ public partial class MainWindow : Window
 	/// </summary>
 	private void AddTargetEntries(ContextMenu menu)
 	{
-		var index = Array.FindIndex(_panels, panel => panel.IsMouseOver);
+		var index = Array.FindIndex(_panels, panel => panel.IsPointerOver);
 		if (index < 0)
 		{
 			return;
@@ -965,9 +1007,9 @@ public partial class MainWindow : Window
 		var graph = _graphs[index];
 		var title = ChannelText.TitleOf(graph.Channel);
 		var scope = _panels[index].Scope;
-		if (scope.IsMouseOver && scope.ActualWidth > 0)
+		if (scope.IsPointerOver && _pointer is { } pointer && pointer.Index == index)
 		{
-			var fraction = Math.Clamp(Mouse.GetPosition(scope).X / scope.ActualWidth, 0, 1);
+			var fraction = pointer.Fraction;
 			var now = _paused || Scrolled ? ViewTime() : MonotonicClock.Now;
 			var time = now - _settings.DisplayDelaySeconds - ((1 - fraction) * _settings.HistorySeconds);
 			var at = TimeProvider.System.GetLocalNow() - TimeSpan.FromSeconds(Math.Max(0, MonotonicClock.Now - time));
@@ -1040,28 +1082,34 @@ public partial class MainWindow : Window
 			MarkLog.Append(MarkLog.DefaultPath(), at, "mark", "Pulse", $"marked at {text}");
 			ShowToast(Messages.Marked(text));
 		}
-		catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+		catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
 		{
 			ShowToast(Messages.SaveFailed(ex.Message));
 		}
 	}
 
-	private void CopyText(string text)
+	private async void CopyText(string text)
 	{
 		try
 		{
-			Clipboard.SetText(text);
+			if (Clipboard is null)
+			{
+				ShowToast(Messages.ClipboardBusy);
+				return;
+			}
+
+			await Avalonia.Input.Platform.ClipboardExtensions.SetTextAsync(Clipboard, text);
 			ShowToast(Messages.Copied);
 		}
-		catch (System.Runtime.InteropServices.ExternalException)
+		catch (Exception ex) when (ex is System.Runtime.InteropServices.ExternalException or InvalidOperationException)
 		{
 			ShowToast(Messages.ClipboardBusy);
 		}
 	}
 
-	private void OnContextMenuOpening(object sender, ContextMenuEventArgs e)
+	private void FillMenu(ContextMenu menu)
 	{
-		var menu = Root.ContextMenu;
+		HideTip();
 		menu.Items.Clear();
 		AddTargetEntries(menu);
 		menu.Items.Add(MenuEntry(_paused ? "Resume" : "Pause", "Space", TogglePause));

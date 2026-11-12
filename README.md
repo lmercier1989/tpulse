@@ -54,8 +54,8 @@ Konsole, xterm -ti vt340, recent tmux) the graphs are pixels, elsewhere braille.
 ```
 
 It puts the program in `~/.local/share/pulse` and the `tpulse` command in `~/.local/bin`, and
-`./install.sh --uninstall` removes them again. Everything below works the same, except what needs Windows: the window
-(`-window`), other machines (`-host`), performance counters (`-counter`) and the Windows Terminal tab. Errors come
+`./install.sh --uninstall` removes them again. Everything below works the same, the window (`-window`) included, except
+what needs Windows: other machines (`-host`), performance counters (`-counter`) and the Windows Terminal tab. Errors come
 from the systemd journal instead of the Windows logs, and notifications go through `notify-send`.
 [What is measured where](docs/hardware-metrics.md#linux) lists the sources.
 
@@ -343,7 +343,7 @@ Pulse starts with five samples:
 ```
 
 On Linux, `dotnet build Pulse.slnx` and `dotnet test --solution Pulse.slnx` build and test the Linux variant
-(`net10.0`, terminal only); `-p:PulseWindows=true` cross-compiles the Windows one. Platform code lives in
+(`net10.0`); `-p:PulseWindows=true` cross-compiles the Windows one. The window (`-window`) is Avalonia on both. Platform code lives in
 `*.Windows.cs` and `*.Linux.cs` files, which each build leaves out for the other platform.
 
 C# on .NET 10. Metrics come from PDH, DXGI, D3DKMT, NVML and IP Helper on Windows, from `/proc`, `/sys` and NVML on

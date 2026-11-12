@@ -1,37 +1,33 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <!-- A console program: it draws inside the terminal; on Windows, -window starts a detached graphical window. -->
+    <!-- A console program: it draws inside the terminal; -window starts a detached Avalonia window. -->
     <OutputType>Exe</OutputType>
     <AssemblyName>tpulse</AssemblyName>
     <RootNamespace>Pulse</RootNamespace>
     <StartupObject>Pulse.Program</StartupObject>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyTitle>Pulse system monitor</AssemblyTitle>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(PulseWindows)' == 'true'">
-    <UseWPF>true</UseWPF>
-    <!-- Only for the notification-area icon behind the Windows notifications (Notifier). -->
+    <!-- Only for the notification-area icon behind the Windows notifications (Notifier) and the terminal's clipboard. -->
     <UseWindowsForms>true</UseWindowsForms>
-    <!-- WFO0003 asks Windows Forms apps to set high DPI in code; the manifest setting is for the WPF window and stays. -->
+    <!-- WFO0003 asks Windows Forms apps to set high DPI in code; the manifest declares it for the whole process. -->
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>pulse.ico</ApplicationIcon>
+    <!-- Avalonia's Win32 backend uses COM (drag and drop, the clipboard) through built-in interop. -->
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(PulseWindows)' == 'true'">
-    <!-- Program.Main starts the WPF application itself, so App.xaml only provides resources. -->
-    <ApplicationDefinition Remove="App.xaml" />
-    <Page Include="App.xaml" />
     <Compile Remove="**/*.Linux.cs" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(PulseWindows)' != 'true'">
-    <!-- Linux: the terminal monitor only. The WPF window, its rendering and the DWM styling are Windows-only. -->
     <Compile Remove="**/*.Windows.cs" />
-    <Compile Remove="App.xaml.cs;MainWindow.xaml.cs;ChannelPanel.xaml.cs;Rendering/**;Interop/**" />
-    <None Remove="**/*.xaml" />
   </ItemGroup>
 
   <ItemGroup>
@@ -44,9 +40,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- WPF and Windows Forms share type names (Application, Control); Windows Forms is named in full where it is used. -->
+    <!-- Avalonia and Windows Forms share type names (Application, Control); Windows Forms is named in full where it is used. -->
     <Using Remove="System.Windows.Forms" />
     <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.6" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.6" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.6" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.6" />
   </ItemGroup>
 
 </Project>

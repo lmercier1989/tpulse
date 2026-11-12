@@ -32,7 +32,7 @@ esac
 
 # Framework-dependent single file: small, and it runs on the .NET runtime the SDK installed.
 dotnet publish "$here/src/Pulse/Pulse.csproj" -c Release -r "$runtime" -p:SelfContained=false -p:PublishSelfContained=false \
-    -p:PublishSingleFile=true -p:DebugType=embedded -o "$destination" --nologo
+    -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=embedded -o "$destination" --nologo
 
 mkdir -p "$bin"
 ln -sf "$destination/tpulse" "$bin/tpulse"
